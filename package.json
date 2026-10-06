@@ -10,7 +10,8 @@
     "verificar": "tsx scripts/verificar-stl.ts",
     "exemplo": "tsx scripts/gerar-exemplo.ts",
     "typecheck": "tsc --noEmit",
-    "importar-osm": "tsx scripts/importar-osm.ts"
+    "importar-osm": "tsx scripts/importar-osm.ts",
+    "pre-carregar": "tsx scripts/pre-carregar.ts"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",

@@ -53,6 +53,7 @@ local**, sem depender do Overpass (que vive sobrecarregado).
 1. Baixe o extrato da sua região na Geofabrik. Para o Sudeste:
    https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf (~820 MB).
    Outras regiões: download.geofabrik.de/south-america/brazil.html
+   (o **Distrito Federal** está no arquivo do **Centro-Oeste**, ~200 MB).
 2. Salve o arquivo, **sem renomear**, em:
    `C:\caminho\para\Mappy\dados-osm\sudeste-latest.osm.pbf`
    (pode colocar mais de um `.osm.pbf` nessa pasta; todos são importados).
@@ -299,6 +300,7 @@ Outros comandos:
 | `npm run exemplo` | Gera um STL do Pão de Açúcar em `saida\` sem abrir o navegador. Aceita `-- circulo`, `-- hexagono` ou pedaços da URL do app separados por **espaço** (o Windows não aceita `&` aqui), ex.: `npm run exemplo -- a=c:-43.16,-22.95,1500 t=120 f=copernicus` |
 | `npm run typecheck` | Confere os tipos do TypeScript |
 | `npm run importar-osm` | Importa os `.osm.pbf` de `dados-osm\` para o índice local |
+| `npm run pre-carregar -- df` | Guarda no cache a elevação (Mapterhorn) e o mapa de fundo do Distrito Federal. Aceita também uma caixa `oeste,sul,leste,norte` em graus, ex.: `npm run pre-carregar -- -43.8,-23.1,-43.1,-22.7` |
 
 ## 6. Dados, cache e limites
 
