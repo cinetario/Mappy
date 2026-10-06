@@ -213,7 +213,8 @@ main { display: grid; grid-template-columns: 1fr 1fr; min-width: 0; }
   padding: 6px 10px; border-radius: 6px; pointer-events: none;
 }
 
-#progresso { height: 4px; background: var(--borda); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+#linha-progresso { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+#progresso { flex: 1; height: 4px; background: var(--borda); border-radius: 2px; overflow: hidden; }
 #progresso-barra { height: 100%; width: 0; background: var(--destaque); transition: width 0.2s; }
 #previa { background: linear-gradient(#e9eef0, #cfd8dc); border-left: 1px solid var(--borda); }
 #previa canvas { display: block; }

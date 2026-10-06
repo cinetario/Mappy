@@ -13,7 +13,8 @@ import { escreverStl, lerStl } from '../core/stl.ts';
 import { verificarMalha } from '../core/verificacao.ts';
 import { baixarOSM } from '../navegador/osm-cliente.ts';
 import { FONTES_TILES, gradeCopernicus } from '../navegador/tiles.ts';
-import type { Contagem, MensagemDoWorker, PedidoGeracao, ResultadoGeracao } from './protocolo.ts';
+import { Cancelado } from '../core/blocos.ts';
+import type { BlocosFaltando, Contagem, MensagemDoWorker, MensagemParaWorker, ResultadoGeracao } from './protocolo.ts';
 
 /** Verifica a malha como ela fica no arquivo (STL não guarda topologia: vértices são soldados pela posição). */
 const verificarComoStl = (m: Malha) => verificarMalha(lerStl(escreverStl(m)));
@@ -25,8 +26,17 @@ let ultimaGrade: { chave: string; grade: GradeElevacao & { aviso?: string } } | 
 
 const NOMES: Record<GrupoOSM, string> = { predios: 'prédios', vias: 'ruas', agua: 'água' };
 
-self.onmessage = async (ev: MessageEvent<PedidoGeracao>) => {
+const cancelamentos = new Map<number, AbortController>();
+
+self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
+  if (ev.data.tipo === 'cancelar') {
+    cancelamentos.get(ev.data.id)?.abort();
+    return;
+  }
   const { id, forma, params, confirmado } = ev.data;
+  const controle = new AbortController();
+  cancelamentos.set(id, controle);
+  const sinal = controle.signal;
   const progresso = (etapa: string, fracao: number) => enviar({ tipo: 'progresso', id, etapa, fracao });
   try {
     progresso('Preparando', 0);
@@ -41,11 +51,15 @@ self.onmessage = async (ev: MessageEvent<PedidoGeracao>) => {
     if (camadaUrbanaAtiva(params.ruas, km2)) grupos.push('vias');
     if (params.agua) grupos.push('agua');
     const dados: DadosCamadas = { predios: null, vias: null, agua: null };
+    const faltando: BlocosFaltando[] = [];
     for (const [k, grupo] of grupos.entries()) {
       const base = 0.35 + (k / grupos.length) * 0.35;
-      const baixados = await baixarOSM(grupo, plano.caixaGrade, (feitos, total) =>
-        progresso(`Baixando ${NOMES[grupo]} do OpenStreetMap (bloco ${Math.min(feitos + 1, total)} de ${total})`, base + (feitos / total) * (0.35 / grupos.length)),
-      );
+      const { elementos: baixados, faltando: semDados } = await baixarOSM(grupo, plano.caixaGrade, ({ feitos, total, mensagem }) =>
+        progresso(
+          `Baixando ${NOMES[grupo]} do OpenStreetMap (bloco ${Math.min(feitos + 1, total)} de ${total})${mensagem ? ` · ${mensagem}` : ''}`,
+          base + (feitos / total) * (0.35 / grupos.length),
+        ), sinal);
+      if (semDados.length) faltando.push({ grupo, nome: NOMES[grupo], blocos: semDados });
       // só o que toca a área; a costa vem inteira (o mar é montado seguindo as linhas até a borda)
       const costa = baixados.filter((e) => e.tags?.natural === 'coastline');
       const elementos = [...filtrarPorArea(baixados.filter((e) => e.tags?.natural !== 'coastline'), plano.caixaGrade), ...costa];
@@ -67,6 +81,7 @@ self.onmessage = async (ev: MessageEvent<PedidoGeracao>) => {
       return;
     }
 
+    if (sinal.aborted) throw new Cancelado();
     progresso('Montando a malha', 0.75);
     const r = gerarModelo(wasm, grade, forma, params, dados);
     progresso('Verificando as peças', 0.95);
@@ -102,13 +117,17 @@ self.onmessage = async (ev: MessageEvent<PedidoGeracao>) => {
         aviso: grade.aviso,
         contagem,
         estatisticasCamadas: r.camadas?.estatisticas ?? null,
-        avisosCamadas: r.camadas?.avisos ?? [],
+        avisosCamadas: [...faltando.map(textoFaltando), ...(r.camadas?.avisos ?? [])],
+        faltando,
       },
     };
     transferir.push(r.malhaUnica.posicoes.buffer, r.malhaUnica.indices.buffer);
     enviar({ tipo: 'pronto', id, resultado }, transferir);
   } catch (erro) {
-    enviar({ tipo: 'erro', id, mensagem: erro instanceof Error ? erro.message : String(erro) });
+    const cancelado = erro instanceof Cancelado || sinal.aborted;
+    enviar({ tipo: 'erro', id, cancelado, mensagem: cancelado ? 'Cancelado' : erro instanceof Error ? erro.message : String(erro) });
+  } finally {
+    cancelamentos.delete(id);
   }
 };
 
@@ -125,4 +144,20 @@ async function obterGrade(forma: Forma, params: Parametros, aoProgredir: (f: num
     ultimaGrade = { chave, grade };
   }
   return ultimaGrade.grade;
+}
+
+/** "Prédios: 2 pedaços da área ficaram sem dados (18,90°S 41,94°O; …)" */
+function textoFaltando(f: BlocosFaltando): string {
+  const grau = (v: number) => Math.abs(v).toFixed(2).replace('.', ',');
+  const lugar = (b: { s: number; w: number; n: number; e: number }) => {
+    const lat = (b.s + b.n) / 2;
+    const lon = (b.w + b.e) / 2;
+    return `${grau(lat)}°${lat < 0 ? 'S' : 'N'} ${grau(lon)}°${lon < 0 ? 'O' : 'L'}`;
+  };
+  const n = f.blocos.length;
+  const nome = f.nome[0].toUpperCase() + f.nome.slice(1);
+  const pedacos = n === 1 ? '1 pedaço da área ficou' : `${n} pedaços da área ficaram`;
+  const lista = f.blocos.slice(0, 4).map(lugar).join('; ') + (n > 4 ? '…' : '');
+  return `${nome}: ${pedacos} sem dados porque o OpenStreetMap não respondeu (marcados em vermelho no mapa: ${lista}). `
+    + 'Gere de novo mais tarde: o que já veio fica guardado no cache.';
 }

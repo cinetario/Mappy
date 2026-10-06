@@ -5,11 +5,21 @@ import type { Forma } from '../core/geo.ts';
 import type { ResultadoVerificacao } from '../core/verificacao.ts';
 
 export interface PedidoGeracao {
+  tipo: 'gerar';
   id: number;
   forma: Forma;
   params: Parametros;
   /** o usuário já confirmou que quer gerar mesmo com muitos elementos */
   confirmado?: boolean;
+}
+
+export type MensagemParaWorker = PedidoGeracao | { tipo: 'cancelar'; id: number };
+
+/** Pedaços da área cujo download do OSM falhou (o modelo foi gerado sem eles). */
+export interface BlocosFaltando {
+  grupo: 'predios' | 'vias' | 'agua';
+  nome: string;
+  blocos: { s: number; w: number; n: number; e: number }[];
 }
 
 /** Quantos elementos do OSM entram em cada camada (null = camada desligada). */
@@ -52,6 +62,7 @@ export interface InfoModelo {
   contagem: Contagem;
   estatisticasCamadas: EstatisticasCamadas | null;
   avisosCamadas: string[];
+  faltando: BlocosFaltando[];
 }
 
 export interface ResultadoGeracao {
@@ -66,4 +77,4 @@ export type MensagemDoWorker =
   | { tipo: 'progresso'; id: number; etapa: string; fracao: number }
   | { tipo: 'pronto'; id: number; resultado: ResultadoGeracao }
   | { tipo: 'confirmar'; id: number; contagem: Contagem }
-  | { tipo: 'erro'; id: number; mensagem: string };
+  | { tipo: 'erro'; id: number; mensagem: string; cancelado?: boolean };

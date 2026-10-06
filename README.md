@@ -237,9 +237,22 @@ Outros comandos:
   - A área é baixada em blocos de 0,04° (~4 km), de uma grade fixa. Ajustar a
     área reaproveita o cache em `cache\osm\`.
   - No máximo 2 consultas ao mesmo tempo, como pede a política do Overpass.
-  - Quando o servidor está ocupado (HTTP 429/503/504), o app espera e tenta de
-    novo; se não der certo, usa um servidor espelho.
-  - Se um bloco é pesado demais, ele é dividido em 4 (até 3 vezes).
+  - Cada consulta tem **tempo limite de 60 s**: o app nunca fica esperando para sempre.
+  - Se o servidor está ocupado (HTTP 429/503/504) ou não responde, o app tenta
+    de novo esperando 5 s, depois 10 s, alternando entre o servidor principal
+    (overpass-api.de) e dois espelhos. A tela mostra o motivo e a contagem
+    regressiva ("Servidor ocupado… tentando de novo em 10 s").
+  - Servidores que não respondem vão para o fim da fila durante a sessão.
+  - Um bloco que falha 3 vezes é dividido em 4 pedaços menores. Um bloco que o
+    Overpass diz ser grande demais é dividido na hora.
+  - Cada bloco concluído é salvo no cache na hora: se você cancelar ou der
+    erro, ele não é baixado de novo.
+  - **Cancelar** (ao lado da barra de progresso) interrompe na hora.
+  - Se algum pedaço não vier, o modelo é gerado mesmo assim. O app avisa quais
+    camadas ficaram incompletas e marca esses pedaços **em vermelho no mapa**.
+    Gere de novo mais tarde para completar.
+  - Se o Overpass inteiro estiver fora do ar (muitas falhas seguidas), o app
+    para de tentar e gera só com o que tiver.
 - **STL único:** as camadas são fundidas ao terreno. Alguns prédios podem ficar
   como corpos separados do terreno por uma folga de ~0,0004 mm. O arquivo
   continua válido, e na impressão eles saem colados.

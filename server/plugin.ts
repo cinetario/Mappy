@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { Plugin } from 'vite';
 import { obterGradeCopernicus } from './copernicus.ts';
 import { PASTA_CACHE, buscarEndereco, ehFonteTile, obterTile, tipoDoTile } from './fontes.ts';
-import { ErroDividir, consultarOSM, ehGrupoOSM, type GrupoOSM } from './overpass.ts';
+import { FalhaOverpass, SERVIDORES, consultarOSM, ehGrupoOSM, type GrupoOSM } from './overpass.ts';
 
 export function apiLocal(): Plugin {
   return {
@@ -50,15 +50,30 @@ export function apiLocal(): Plugin {
             const [s, w, n, e] = ['s', 'w', 'n', 'e'].map((k) => Number(url.searchParams.get(k)));
             const ok = ehGrupoOSM(grupo) && [s, w, n, e].every(Number.isFinite) && n > s && e > w && n - s <= 0.5 && e - w <= 0.5;
             if (!ok) throw new Error('Pedido inválido para o OpenStreetMap (bloco máximo de 0,5°)');
+            const servidor = Number(url.searchParams.get('servidor') ?? 0) || 0;
+            // se o navegador cancelar (ou fechar), a consulta ao Overpass também é cancelada
+            const cancelar = new AbortController();
+            res.on('close', () => {
+              if (!res.writableEnded) cancelar.abort();
+            });
             try {
-              const json = await consultarOSM(grupo as GrupoOSM, s, w, n, e);
+              const json = await consultarOSM(grupo as GrupoOSM, s, w, n, e, servidor, cancelar.signal);
               res.setHeader('Content-Type', 'application/json; charset=utf-8');
               res.end(json);
             } catch (erro) {
-              if (!(erro instanceof ErroDividir)) throw erro;
-              res.statusCode = 504; // o cliente divide o bloco em 4 e tenta de novo
-              res.end(erro.message);
+              // falhas do Overpass voltam como JSON {tipo, mensagem}; o navegador decide se tenta de novo
+              const falha = erro instanceof FalhaOverpass ? erro : new FalhaOverpass('erro', String(erro instanceof Error ? erro.message : erro));
+              if (!res.writableEnded && !res.destroyed) {
+                res.statusCode = 503;
+                res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                res.end(JSON.stringify({ tipo: falha.tipo, mensagem: falha.message }));
+              }
             }
+            return;
+          }
+          if (url.pathname === '/osm/servidores') {
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify(SERVIDORES.map((s) => new URL(s).hostname)));
             return;
           }
           if (url.pathname === '/busca') {

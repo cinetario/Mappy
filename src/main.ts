@@ -13,8 +13,8 @@ import { escreverStl } from './core/stl.ts';
 import { montarAbaCamadas } from './navegador/aba-camadas.ts';
 import { montarAbaModelo } from './navegador/aba-modelo.ts';
 import { criarDesenho, type Ferramenta } from './navegador/desenho.ts';
-import { criarGerador } from './navegador/gerador.ts';
-import { criarMapa, enquadrar } from './navegador/mapa.ts';
+import { GeracaoCancelada, criarGerador } from './navegador/gerador.ts';
+import { criarMapa, enquadrar, mostrarFaltando } from './navegador/mapa.ts';
 import type { Contexto } from './navegador/painel.ts';
 import { criarPrevia } from './navegador/previa.ts';
 import { area as fmtArea, decimal, distancia, inteiro, medidaModelo, type Sistema } from './navegador/unidades.ts';
@@ -321,12 +321,13 @@ async function gerar(confirmado = false) {
   }
   gerando = true;
   modeloDesatualizado = false;
-  const barra = $('progresso');
+  const barra = $('linha-progresso');
   barra.hidden = false;
+  mostrarFaltando(mapa, []);
   try {
     const params = { ...estado.params };
     const resposta = await gerador.gerar(forma, params, confirmado, (etapa, fracao) => {
-      status(`${etapa}…`);
+      status(etapa.endsWith("…") ? etapa : `${etapa}…`);
       $('progresso-barra').style.width = `${Math.round(fracao * 100)}%`;
     });
     if (resposta.tipo === 'confirmar') {
@@ -352,6 +353,7 @@ async function gerar(confirmado = false) {
     }
     if (r.info.aviso) avisos.push(r.info.aviso);
     avisos.push(...r.info.avisosCamadas);
+    mostrarFaltando(mapa, r.info.faltando.flatMap((f) => f.blocos));
     status(
       (v.valida && ruins.length === 0
         ? `<span class="ok">✓ Malha fechada e válida</span> · ${r.partes.length} peças, todas manifold`
@@ -361,13 +363,25 @@ async function gerar(confirmado = false) {
     botao('btn-stl').disabled = !v.valida;
     atualizarPainel();
   } catch (erro) {
-    status(`<span class="erro">Erro: ${erro instanceof Error ? erro.message : erro}</span>`);
+    if (erro instanceof GeracaoCancelada) {
+      modeloDesatualizado = false; // cancelou: não recomeça sozinho
+      status('Geração cancelada. O que já foi baixado ficou guardado no cache.');
+    } else {
+      status(`<span class="erro">Erro: ${erro instanceof Error ? erro.message : erro}</span>`);
+    }
   } finally {
     gerando = false;
     barra.hidden = true;
     if (modeloDesatualizado) agendarGeracao(0);
   }
 }
+
+botao('btn-cancelar-geracao').addEventListener('click', () => {
+  clearTimeout(espera);
+  modeloDesatualizado = false;
+  status('Cancelando…');
+  gerador.cancelar();
+});
 
 let quadradoGrade = 10;
 
