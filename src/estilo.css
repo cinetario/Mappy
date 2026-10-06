@@ -87,6 +87,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .dica { font-size: 12px; color: var(--suave); margin: 6px 0 0; }
 .info { font-size: 13px; margin-top: 8px; line-height: 1.5; }
 .info .aviso { background: var(--aviso-fundo); color: var(--aviso); padding: 6px 8px; border-radius: 6px; margin-top: 6px; }
+.info .aviso-leve { border-left: 3px solid var(--aviso); padding: 2px 0 2px 8px; margin-top: 6px; color: var(--suave); }
+.info .aviso-leve strong { color: var(--aviso); }
 .info .erro { color: var(--erro); }
 .info .ok { color: var(--ok); }
 

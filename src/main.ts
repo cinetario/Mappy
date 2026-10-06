@@ -12,9 +12,11 @@ import { criarMapa, enquadrar } from './navegador/mapa.ts';
 import { CORES_CAMADAS, criarPrevia } from './navegador/previa.ts';
 import type { ResultadoGeracao } from './trabalhador/protocolo.ts';
 
-// Limites usados nos avisos
-const AREA_MAX_OSM_KM2 = 25; // acima disso o Overpass (prédios/ruas) fica lento ou recusa
-const AREA_MAX_KM2 = 250_000; // acima disso a projeção local distorce demais
+import {
+  AREA_GRANDE_KM2, AREA_LIVRE_KM2, AREA_MAXIMA_KM2, LARGURA_MINIMA_MM, LARGURA_RUA_LOCAL_M,
+  classificarArea, ladoMaximoSemEngrossarM, larguraImpressa,
+} from './core/limites.ts';
+
 const MESA_IMPRESSORA_MM = 270; // volume útil da Snapmaker U1
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -133,9 +135,12 @@ function atualizarArea() {
   const tamanho = estado.params.tamanhoMm;
   const escala = tamanho / Math.max(largura, altura); // mm por metro
   const avisos: string[] = [];
-  if (km2 > AREA_MAX_KM2) avisos.push('Área enorme: a projeção fica distorcida. Escolha uma região menor.');
-  else if (km2 > AREA_MAX_OSM_KM2) {
-    avisos.push(`Área grande para prédios e ruas (acima de ~${AREA_MAX_OSM_KM2} km² o download do OpenStreetMap fica lento). Para só o relevo, tudo bem.`);
+  const faixa = classificarArea(km2);
+  if (km2 > AREA_MAXIMA_KM2) avisos.push('Área enorme: a projeção fica distorcida. Escolha uma região menor.');
+  else if (faixa === 'muito-grande') {
+    avisos.push(`Acima de ${AREA_GRANDE_KM2} km²: prédios e ruas ficam desligados por padrão (dá para ligar manualmente). Ficam relevo, água e áreas verdes.`);
+  } else if (faixa === 'grande') {
+    avisos.push(`Entre ${AREA_LIVRE_KM2} e ${AREA_GRANDE_KM2} km²: o download do OpenStreetMap fica lento, e prédios e ruas locais saem finos demais para imprimir. Sugestão: só vias principais (rodovias e avenidas), água e cobertura do solo.`);
   }
   if (km2 < 0.01) avisos.push('Área muito pequena: o relevo vai sair quase plano.');
   if (tamanho > MESA_IMPRESSORA_MM) avisos.push(`O modelo passa de ${MESA_IMPRESSORA_MM} mm, o limite da mesa da Snapmaker U1.`);
@@ -143,9 +148,20 @@ function atualizarArea() {
     avisos.push('O polígono cruza a si mesmo. Arraste os vértices para desfazer o cruzamento.');
   }
 
+  // largura impressa de uma rua local, para ver na hora se é imprimível
+  const rua = larguraImpressa(LARGURA_RUA_LOCAL_M, escala);
+  const fmtMm = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: v < 1 ? 2 : 1 });
+  const linhaRua = rua.engrossada
+    ? `<div class="aviso-leve">Rua local (${LARGURA_RUA_LOCAL_M} m) sairia com <strong>${fmtMm(rua.realMm)} mm</strong>,
+       abaixo do mínimo de ${fmtMm(LARGURA_MINIMA_MM)} mm. Será engrossada para ${fmtMm(LARGURA_MINIMA_MM)} mm
+       (≈ ${Math.round(rua.impressaEmMetros)} m reais). Na largura real, só com lado maior até
+       ${formatarKm(ladoMaximoSemEngrossarM(LARGURA_RUA_LOCAL_M, tamanho))}.</div>`
+    : `<div><span class="ok">✓</span> Rua local (${LARGURA_RUA_LOCAL_M} m): <strong>${fmtMm(rua.realMm)} mm</strong> impressa, imprimível.</div>`;
+
   info.innerHTML = `
     <div><strong>${descreverForma(f, largura, altura)}</strong> · ${km2 < 10 ? km2.toFixed(2) : Math.round(km2).toLocaleString('pt-BR')} km²</div>
     <div>Modelo: ${(largura * escala).toFixed(0)} × ${(altura * escala).toFixed(0)} mm · 1 mm = ${(1 / escala).toFixed(1)} m</div>
+    ${linhaRua}
     <div class="dica">Centro: ${formatarCoordenadas(caixaDaForma(f))} · arraste as alças brancas para ajustar${f.tipo === 'poligono' ? ' (botão direito apaga um vértice)' : ''}</div>
     ${avisos.map((a) => `<div class="aviso">${a}</div>`).join('')}`;
   info.hidden = false;
