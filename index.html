@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Relevo3D</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26 L11 10 L17 19 L21 13 L30 26 Z' fill='%232f6f4f'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="painel">
+        <header>
+          <h1>Relevo3D</h1>
+          <p class="sub">Mapas 3D para impressão</p>
+        </header>
+
+        <section>
+          <h2>1. Local</h2>
+          <form id="form-busca" class="linha">
+            <input id="busca" type="search" placeholder="Endereço, cidade, montanha…" autocomplete="off" />
+            <button type="submit">Buscar</button>
+          </form>
+          <ul id="resultados"></ul>
+        </section>
+
+        <section>
+          <h2>2. Área</h2>
+          <div class="linha">
+            <button id="btn-desenhar" type="button">Desenhar retângulo</button>
+            <button id="btn-visivel" type="button" class="secundario">Usar área visível</button>
+          </div>
+          <p class="dica" id="dica-desenho">Clique em "Desenhar retângulo" e arraste no mapa.</p>
+          <div id="info-area" class="info" hidden></div>
+        </section>
+
+        <section>
+          <h2>3. Modelo</h2>
+          <label>Tamanho do lado maior (mm)
+            <input id="p-tamanho" type="number" min="20" max="400" step="5" value="150" />
+          </label>
+          <label>Exagero vertical do relevo: <strong id="v-exagero">1.5x</strong>
+            <input id="p-exagero" type="range" min="1" max="5" step="0.1" value="1.5" />
+          </label>
+          <label>Espessura da base (mm)
+            <input id="p-base" type="number" min="0.6" max="30" step="0.2" value="3" />
+          </label>
+          <label>Detalhe (pontos no lado maior): <strong id="v-resolucao">300</strong>
+            <input id="p-resolucao" type="range" min="50" max="600" step="10" value="300" />
+          </label>
+          <label class="check">
+            <input id="p-mar" type="checkbox" checked /> Mar plano (ignora o fundo do oceano)
+          </label>
+        </section>
+
+        <section>
+          <div class="linha">
+            <button id="btn-gerar" type="button" class="principal" disabled>Gerar modelo 3D</button>
+            <button id="btn-stl" type="button" disabled>Baixar STL</button>
+          </div>
+          <div id="status" class="info" hidden></div>
+        </section>
+
+        <footer>
+          Dados: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>
+          · Mapa: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>
+          · Elevação: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">AWS Terrain Tiles</a>
+          (SRTM, GMTED, ETOPO1 e outras fontes)
+        </footer>
+      </aside>
+
+      <main>
+        <div id="mapa"></div>
+        <div id="previa">
+          <div id="previa-vazia">A pré-visualização 3D aparece aqui depois de gerar o modelo.</div>
+          <div id="previa-medidas" hidden></div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
