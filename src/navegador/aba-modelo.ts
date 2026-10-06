@@ -1,8 +1,9 @@
 // Aba "Modelo": dimensões, terreno, estilo, base, laterais, camadas de impressão e estatísticas.
 import { FONTES } from '../core/elevacao.ts';
+import { FONTES_TEXTO } from '../core/texto.ts';
 import { lerFaixas } from '../core/estado.ts';
 import {
-  booleano, cor, editorFaixas, informacao, numero, opcoes, secao,
+  booleano, cor, editorFaixas, informacao, numero, opcoes, secao, subsecao, textoLivre,
   type AoMudar, type Contexto, type Controle,
 } from './painel.ts';
 import { bytes, decimal, inteiro, medidaModelo, type Sistema } from './unidades.ts';
@@ -13,6 +14,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
   const impressao = (c: Contexto) => c.params.modo === 'impressao';
   const sis = (c: Contexto) => c.params.unidades as Sistema;
   const unidadeModelo = (c: Contexto) => (impressao(c) ? 'mm' : 'm');
+  const comTexto = (c: Contexto) => c.params.moldura && !!c.params.texto.trim();
 
   const secoes: Controle[] = [
     secao('dimensoes', 'Dimensões e coordenadas', [
@@ -32,6 +34,23 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
         dica: (c) => `O exagero vertical é calculado para o ponto mais alto ficar nessa altura${
           c.info ? `: <strong>${decimal(c.info.exageroEfetivo, 2)}x</strong>` : ''}.`,
       }),
+      subsecao('Dividir em blocos', [
+        booleano('blocos', 'Dividir em blocos (mapas maiores que a mesa)', aoMudar),
+        numero('blocosX', 'Colunas (oeste → leste)', aoMudar, { passo: 1, visivel: (c) => c.params.blocos }),
+        numero('blocosY', 'Linhas (norte → sul)', aoMudar, {
+          passo: 1, visivel: (c) => c.params.blocos,
+          dica: (c) => {
+            const nomes = 'Cada bloco vira um arquivo: A1, B1… (letra = coluna, número = linha; A1 é o canto noroeste).';
+            if (!c.info) return nomes;
+            const bx = c.info.largura / c.params.blocosX;
+            const by = c.info.profundidade / c.params.blocosY;
+            const cabe = Math.max(bx, by) <= MESA_MM
+              ? '<span class="ok">✓ cabe na mesa</span>'
+              : `<span class="erro">passa de ${MESA_MM} mm: use mais blocos</span>`;
+            return `Cada bloco: <strong>${medidaModelo(bx, sis(c), 0)} × ${medidaModelo(by, sis(c), 0)}</strong> ${cabe}. ${nomes}`;
+          },
+        }),
+      ], { visivel: impressao }),
       opcoes('unidades', 'Unidades na tela', [['metrico', 'Métrico'], ['imperial', 'Imperial']], aoMudar, {
         dica: 'Só muda como as medidas aparecem. Os arquivos exportados são sempre em mm.',
       }),
@@ -107,8 +126,34 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
 
     secao('laterais', 'Laterais', [
       cor('corLaterais', 'Cor da base (e das laterais da base)', aoMudar),
-      informacao(() => 'A base é uma peça separada; no 3MF (Fase E) ela pode receber outro filamento. Acima da base, as laterais têm a cor do terreno ou da faixa.'),
+      informacao(() => 'A base é uma peça separada; no 3MF ela pode receber outro filamento. Acima da base, as laterais têm a cor do terreno ou da faixa.'),
     ]),
+
+    secao('moldura', 'Moldura e texto', [
+      booleano('moldura', 'Moldura em volta do modelo', aoMudar),
+      opcoes('molduraEstilo', 'Cantos', [['reta', 'Retos'], ['arredondada', 'Arredondados']], aoMudar, { visivel: (c) => c.params.moldura }),
+      cor('molduraCor', 'Cor da moldura', aoMudar, { visivel: (c) => c.params.moldura && !c.params.molduraFundir }),
+      numero('molduraEspessuraMm', 'Espessura', aoMudar, { unidade: 'mm', passo: 0.5, visivel: (c) => c.params.moldura }),
+      numero('molduraAlturaMm', 'Altura (a partir da mesa)', aoMudar, { unidade: 'mm', passo: 0.5, visivel: (c) => c.params.moldura }),
+      booleano('molduraFundir', 'Fundir à base (mesma peça e cor da base)', aoMudar, { visivel: (c) => c.params.moldura }),
+      textoLivre('texto', 'Texto na moldura', aoMudar, {
+        exemplo: 'Ex.: URCA · RIO DE JANEIRO', visivel: (c) => c.params.moldura,
+        dica: 'Fica numa plaquinha da moldura, no lado escolhido. Deixe vazio para não ter texto.',
+      }),
+      opcoes('textoFonte', 'Fonte', Object.entries(FONTES_TEXTO).map(([v, f]) => [v, f.nome] as [string, string]), aoMudar, {
+        lista: true, visivel: comTexto,
+      }),
+      numero('textoTamanhoMm', 'Altura das letras', aoMudar, { unidade: 'mm', passo: 0.5, visivel: comTexto }),
+      opcoes('textoBorda', 'Lado', [['inferior', 'Embaixo'], ['superior', 'Em cima'], ['esquerda', 'Esquerda'], ['direita', 'Direita']], aoMudar, {
+        visivel: comTexto,
+      }),
+      opcoes('textoModo', 'Acabamento', [['relevo', 'Em relevo'], ['gravado', 'Embutido (rente)']], aoMudar, {
+        visivel: comTexto,
+        dica: 'Em relevo: as letras sobem acima da moldura. Embutido: ficam no nível da moldura, só com outra cor.',
+      }),
+      numero('textoRelevoMm', 'Espessura das letras', aoMudar, { unidade: 'mm', passo: 0.2, visivel: comTexto }),
+      cor('textoCor', 'Cor do texto', aoMudar, { visivel: comTexto }),
+    ], (c) => (c.params.moldura ? (c.params.texto.trim() ? 'Com texto' : 'Ligada') : 'Desligada')),
 
     secao('impressao', 'Camadas de impressão', [
       numero('alturaCamadaMm', 'Altura de camada', aoMudar, { unidade: 'mm', passo: 0.02 }),

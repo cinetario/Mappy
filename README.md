@@ -118,6 +118,11 @@ PowerShell e aperte `Ctrl + C`.
      - *Travar altura total*: o exagero é calculado para o ponto mais alto ficar
        na altura pedida.
      - Unidades métricas ou imperiais (só na tela; os arquivos são sempre em mm).
+     - *Dividir em blocos*: corta o modelo em colunas × linhas (até 8 × 8) para
+       imprimir mapas maiores que a mesa. Cada bloco vira um arquivo, com nome
+       A1, B1… (letra = coluna de oeste para leste, número = linha; A1 é o canto
+       noroeste). O painel mostra o tamanho de cada bloco e se cabe na mesa. Na
+       pré-visualização os blocos aparecem afastados, para ver os cortes.
    - **Detalhes do terreno**
      - Exagero vertical.
      - Fonte de elevação (veja a seção 6), com a resolução real usada no modelo.
@@ -134,6 +139,16 @@ PowerShell e aperte `Ctrl + C`.
    - **Base**: altura abaixo do ponto mais baixo (padrão 2 mm), arredondada
      para um número inteiro de camadas.
    - **Laterais**: cor da base (que é uma peça separada).
+   - **Moldura e texto**
+     - Moldura em volta do modelo (em qualquer formato de área): cantos retos ou
+       arredondados, cor, espessura (padrão 3 mm) e altura a partir da mesa
+       (padrão 5 mm). *Fundir à base* junta a moldura à base (mesma peça e cor).
+     - Texto (até 60 letras) numa plaquinha da moldura, embaixo, em cima ou nas
+       laterais. Três fontes livres (Archivo Black, Bebas Neue, Anton), altura das
+       letras (padrão 6 mm) e cor.
+     - *Em relevo*: as letras sobem acima da moldura (padrão 0,8 mm).
+       *Embutido*: as letras ficam no nível da moldura, só com outra cor.
+     - Moldura e texto são peças separadas, com a altura alinhada às camadas.
    - **Camadas de impressão**: altura de camada e da 1ª camada. Use os mesmos
      valores do perfil no Snapmaker Orca.
    - **Estatísticas**: triângulos, peças e tamanho estimado dos arquivos.
@@ -144,8 +159,19 @@ PowerShell e aperte `Ctrl + C`.
    - O botão **Wireframe** mostra os triângulos da malha.
    - Depois de gerado, mudar os parâmetros atualiza a prévia na hora.
 6. A linha de status mostra **✓ Malha fechada e válida** quando todas as peças
-   passaram na verificação. Clique em **Baixar STL** (todas as peças fundidas
-   num arquivo).
+   passaram na verificação. Escolha o arquivo:
+   - **Baixar 3MF (multicolor)**: cada camada é um objeto separado e com nome
+     (Base, Terreno, Prédios, Ruas, Água, Moldura, Texto…), já com a cor e o
+     filamento definidos. Abre como um objeto só, com as peças no lugar certo.
+   - **STL único**: todas as peças fundidas num sólido só (uma cor).
+   - **STL por peça (.zip)**: um STL por camada, todos alinhados na mesma origem.
+   - Com *Dividir em blocos* ligado, cada botão baixa um `.zip` com um arquivo
+     por bloco (no STL por peça, uma pasta por bloco).
+
+   Abaixo dos botões aparece **qual peça vai em qual filamento** (1 a 4). A
+   Snapmaker U1 tem 4 filamentos: as 4 cores com mais volume ganham um filamento
+   cada, e as outras vão para o filamento de cor mais parecida (verde com verde,
+   por exemplo). Dá para trocar no Snapmaker Orca.
 
 ### Aba Camadas
 
@@ -229,7 +255,12 @@ para alguém. Ao abrir o link, o modelo é refeito igualzinho. Recarregar a pág
 
 ## 4. Imprimindo (Snapmaker Orca)
 
-1. Abra o Snapmaker Orca e arraste o arquivo `.stl` para a mesa.
+1. Abra o Snapmaker Orca e arraste o arquivo `.3mf` para a mesa.
+   - Se perguntar *"carregar como um objeto com várias peças?"*, responda **Sim**.
+   - Na lista de objetos (à esquerda), abra o objeto: cada peça aparece com o
+     nome e o número do filamento. Confira as cores dos filamentos 1 a 4 no
+     painel de filamentos para elas baterem com o painel do app.
+   - Com o `.stl` único, o modelo sai numa cor só.
 2. O modelo já vem com a base para baixo, em milímetros, sem precisar girar.
 3. Sugestões para um primeiro teste:
    - Tamanho 100 mm a 150 mm, exagero 1,5x a 2x.
@@ -339,7 +370,7 @@ mapas3d/
       estado.ts         definição dos parâmetros, presets + leitura/escrita na URL
       elevacao.ts       tiles Terrarium (AWS e Mapterhorn), "tile pai" quando falta zoom
       terreno.ts        grade → bloco sólido; triangulação adaptativa (Delatin)
-      modelo.ts         recorte no formato da área e divisão em peças (base, faixas)
+      modelo.ts         recorte no formato da área, divisão em peças e em blocos
       camadas-impressao.ts  alinhamento de alturas às camadas de impressão
       limites.ts        faixas de tamanho de área e largura mínima imprimível
       osm.ts            leitura dos dados do OSM (prédios, vias, água, multipolígonos)
@@ -355,6 +386,10 @@ mapas3d/
       verificacao.ts    verificação de malha manifold
       manifold.ts       ponte com a biblioteca manifold-3d (booleanas e validação)
       stl.ts            leitura e escrita de STL binário
+      tmf.ts            3MF multicolor e distribuição das cores nos 4 filamentos
+      moldura.ts        moldura e plaquinha de texto
+      texto.ts          texto → contornos (fontes TrueType)
+    fontes/             fontes livres do texto (licença OFL ao lado de cada uma)
     navegador/          partes que só rodam no navegador
       mapa.ts           MapLibre e mapa de fundo
       desenho.ts        ferramentas de desenho e alças de edição

@@ -9,7 +9,9 @@ import {
   AREA_GRANDE_KM2, AREA_LIVRE_KM2, AREA_MAXIMA_KM2, LARGURA_MINIMA_MM, LARGURA_RUA_LOCAL_M,
   camadaUrbanaAtiva, classificarArea, ladoMaximoSemEngrossarM, larguraImpressa,
 } from './core/limites.ts';
+import { zipSync } from 'fflate';
 import { escreverStl } from './core/stl.ts';
+import { distribuirFilamentos, escrever3mf } from './core/tmf.ts';
 import { montarAbaCamadas } from './navegador/aba-camadas.ts';
 import { montarAbaModelo } from './navegador/aba-modelo.ts';
 import { criarDesenho, type Ferramenta } from './navegador/desenho.ts';
@@ -19,7 +21,7 @@ import { criarMapa, enquadrar, mostrarFaltando } from './navegador/mapa.ts';
 import type { Contexto } from './navegador/painel.ts';
 import { criarPrevia } from './navegador/previa.ts';
 import { area as fmtArea, decimal, distancia, inteiro, medidaModelo, type Sistema } from './navegador/unidades.ts';
-import type { Contagem, ResultadoGeracao } from './trabalhador/protocolo.ts';
+import type { Contagem, ParteGerada, ResultadoGeracao } from './trabalhador/protocolo.ts';
 import { TIPOS_SO_PRINCIPAIS, escreverTiposDesligados } from './core/vias.ts';
 import { lerCobertura } from './core/cobertura.ts';
 
@@ -114,6 +116,7 @@ function atualizarPainel() {
   abaModelo.atualizar(c);
   abaCamadas.atualizar(c);
   atualizarCores();
+  mostrarFilamentos();
   atualizarCreditos();
 }
 
@@ -289,6 +292,8 @@ function coresPrevistas(p: Parametros): string[] {
     ...(p.cobertura ? Object.values(lerCobertura(p.coberturaCategorias) ?? {}).filter((c) => c.ligada).map((c) => c.cor) : []),
     p.arvores ? p.arvoresCor : null,
     p.curvas && p.curvasImprimir ? p.curvasCor : null,
+    p.moldura && !p.molduraFundir ? p.molduraCor : null,
+    p.moldura && p.texto.trim() ? p.textoCor : null,
   ].filter((c): c is string => !!c);
   return [...new Set([p.corLaterais, ...terreno, ...camadas])];
 }
@@ -301,7 +306,7 @@ function atualizarCores() {
   const excesso = cores.length > FILAMENTOS;
   $('cores').innerHTML = `Cores: <strong class="${excesso ? 'erro' : ''}">${cores.length}/${FILAMENTOS}</strong> ${amostras}`
     + (excesso
-      ? `<div class="aviso">A Snapmaker U1 tem ${FILAMENTOS} filamentos. Use a mesma cor em mais de uma peça (ex.: base igual à primeira faixa, ruas iguais aos prédios) ou reduza faixas e camadas.</div>`
+      ? `<div class="aviso">A Snapmaker U1 tem ${FILAMENTOS} filamentos. Use a mesma cor em mais de uma peça (ex.: base igual à primeira faixa, ruas iguais aos prédios) ou reduza faixas e camadas. No 3MF, as cores a mais vão para o filamento de cor mais parecida.</div>`
       : '');
 }
 
@@ -374,7 +379,13 @@ async function gerar(confirmado = false) {
         : `<span class="erro">✗ Malha com problemas: ${[...v.erros, ...ruins.map((p) => `${p.nome}: ${p.verificacao.erros.join(', ')}`)].join('; ')}</span>`)
       + avisos.map((a) => `<div class="aviso">${a}</div>`).join(''),
     );
-    botao('btn-stl').disabled = !v.valida;
+    const blocosRuins = r.blocos.filter((b) => !b.verificacao.valida || b.partes.some((p) => !p.verificacao.valida));
+    if (blocosRuins.length) {
+      status(`${$('status').innerHTML}<div class="erro">✗ Blocos com problemas: ${blocosRuins.map((b) => b.rotulo).join(', ')}</div>`);
+    }
+    const ok = v.valida && !blocosRuins.length;
+    $('exportar').hidden = false;
+    for (const id of ['btn-3mf', 'btn-stl', 'btn-stl-pecas']) botao(id).disabled = !ok;
     atualizarPainel();
     void atualizarOsmLocal();
   } catch (erro) {
@@ -403,13 +414,27 @@ let quadradoGrade = 10;
 function mostrarPrevia(enquadrar: boolean) {
   if (!resultado) return;
   const p = estado.params;
-  quadradoGrade = previa.mostrar(resultado.partes.map((x) => ({
+  const r = resultado;
+  const peca = (x: ParteGerada, deslocar?: [number, number]) => ({
     id: x.id,
     malha: x,
     cor: x.cor,
     opacidade: x.id === 'agua' ? p.aguaOpacidade : x.id.startsWith('cobertura-') ? p.coberturaOpacidade : 1,
     arestas: x.id === 'predios' && p.prediosArestas,
-  })), enquadrar, { id: 'curvas', pontos: resultado.linhasPrevia, cor: p.curvasCor });
+    deslocar,
+  });
+  if (r.blocos.length) {
+    // blocos afastados uns dos outros, para ver os cortes
+    const folga = Math.max(r.info.largura, r.info.profundidade) * 0.04;
+    const nx = Math.max(...r.blocos.map((b) => b.coluna)) + 1;
+    const ny = Math.max(...r.blocos.map((b) => b.linha)) + 1;
+    quadradoGrade = previa.mostrar(r.blocos.flatMap((b) => {
+      const d: [number, number] = [(b.coluna - (nx - 1) / 2) * folga, -(b.linha - (ny - 1) / 2) * folga];
+      return b.partes.map((x) => peca(x, d));
+    }), enquadrar);
+    return;
+  }
+  quadradoGrade = previa.mostrar(r.partes.map((x) => peca(x)), enquadrar, { id: 'curvas', pontos: r.linhasPrevia, cor: p.curvasCor });
 }
 
 /** Área com muitos elementos: mostra a contagem e deixa escolher. */
@@ -473,11 +498,88 @@ botao('btn-aramado').addEventListener('click', () => {
 });
 
 // ---------- exportação ----------
+/** Filamento (1–4) de cada cor, decidido pelo modelo inteiro (todos os blocos usam o mesmo). */
+function filamentos(r: ResultadoGeracao) {
+  const f = distribuirFilamentos(r.partes.map((p) => ({ nome: p.nome, cor: p.cor, volume: p.verificacao.volumeMm3 })), FILAMENTOS);
+  const porCor = new Map(r.partes.map((p, k) => [p.cor, f.porPeca[k]]));
+  return { ...f, porCor };
+}
+
+function mostrarFilamentos() {
+  const el = $('filamentos');
+  if (!resultado) {
+    el.innerHTML = '';
+    return;
+  }
+  const f = filamentos(resultado);
+  const linhas = f.filamentos.map((x) => {
+    const pecas = resultado!.partes.filter((p) => f.porCor.get(p.cor) === x.extrusora);
+    const outras = [...new Set(pecas.filter((p) => p.cor !== x.cor).map((p) => p.cor))];
+    return `<tr><td>Filamento ${x.extrusora} <span class="amostra" style="background:${x.cor}"></span></td>
+      <td>${pecas.map((p) => p.nome).join(', ')}${outras.length ? ` · <span class="suave">no lugar de ${outras.map((c) => `<span class="amostra" style="background:${c}"></span>`).join('')}</span>` : ''}</td></tr>`;
+  }).join('');
+  el.innerHTML = `<strong>No 3MF:</strong><table>${linhas}</table>`
+    + (f.agrupadas
+      ? `<div class="aviso">Há mais de ${FILAMENTOS} cores: as que sobram foram juntadas ao filamento de cor mais parecida (dá para trocar no Snapmaker Orca).</div>`
+      : '');
+}
+
+function nomeBase() {
+  const nome = nomeArquivo(estado.nome || (estado.forma ? formatarCoordenadas(caixaDaForma(estado.forma)) : ''));
+  const sufixo = resultado?.info.unidade === 'm' ? '1x1-metros' : `${inteiro(estado.params.tamanhoMm)}mm`;
+  return { nome, arquivo: `${nome}-${sufixo}` };
+}
+
+/** Um 3MF com as peças dadas (as cores seguem os filamentos do modelo inteiro). */
+function tmfDe(partes: ParteGerada[], titulo: string) {
+  const f = filamentos(resultado!);
+  return escrever3mf(
+    partes.map((p) => ({ nome: p.nome, cor: p.cor, malha: p, extrusora: f.porCor.get(p.cor) ?? 1 })),
+    { titulo, unidade: resultado!.info.unidade === 'm' ? 'meter' : 'millimeter' },
+  );
+}
+
+const zip = (arquivos: Record<string, Uint8Array>) => new Blob([zipSync(arquivos, { level: 6 }) as Uint8Array<ArrayBuffer>], { type: 'application/zip' });
+const stl = (m: { posicoes: Float32Array; indices: Uint32Array }, titulo: string) => new Uint8Array(escreverStl(m, titulo));
+const arquivoPeca = (p: ParteGerada) => nomeArquivo(p.nome);
+
+botao('btn-3mf').addEventListener('click', () => {
+  if (!resultado) return;
+  const { nome, arquivo } = nomeBase();
+  const titulo = `Relevo3D ${estado.nome || nome}`;
+  if (resultado.blocos.length) {
+    const arquivos: Record<string, Uint8Array> = {};
+    for (const b of resultado.blocos) arquivos[`${arquivo}-bloco-${b.rotulo}.3mf`] = tmfDe(b.partes, `${titulo} ${b.rotulo}`);
+    baixar(zip(arquivos), `${arquivo}-blocos-3mf.zip`);
+    return;
+  }
+  baixar(new Blob([tmfDe(resultado.partes, titulo) as Uint8Array<ArrayBuffer>], { type: 'model/3mf' }), `${arquivo}.3mf`);
+});
+
 botao('btn-stl').addEventListener('click', () => {
-  if (!resultado || !estado.forma) return;
-  const nome = nomeArquivo(estado.nome || formatarCoordenadas(caixaDaForma(estado.forma)));
-  const sufixo = resultado.info.unidade === 'm' ? '1x1-metros' : `${inteiro(estado.params.tamanhoMm)}mm`;
-  baixar(new Blob([escreverStl(resultado.unica, `Relevo3D ${nome}`)], { type: 'model/stl' }), `${nome}-${sufixo}.stl`);
+  if (!resultado) return;
+  const { nome, arquivo } = nomeBase();
+  if (resultado.blocos.length) {
+    const arquivos: Record<string, Uint8Array> = {};
+    for (const b of resultado.blocos) arquivos[`${arquivo}-bloco-${b.rotulo}.stl`] = stl(b.unica, `Relevo3D ${nome} ${b.rotulo}`);
+    baixar(zip(arquivos), `${arquivo}-blocos-stl.zip`);
+    return;
+  }
+  baixar(new Blob([escreverStl(resultado.unica, `Relevo3D ${nome}`)], { type: 'model/stl' }), `${arquivo}.stl`);
+});
+
+botao('btn-stl-pecas').addEventListener('click', () => {
+  if (!resultado) return;
+  const { nome, arquivo } = nomeBase();
+  const arquivos: Record<string, Uint8Array> = {};
+  if (resultado.blocos.length) {
+    for (const b of resultado.blocos) {
+      for (const p of b.partes) arquivos[`bloco-${b.rotulo}/${arquivo}-${b.rotulo}-${arquivoPeca(p)}.stl`] = stl(p, `Relevo3D ${nome} ${b.rotulo} ${p.nome}`);
+    }
+  } else {
+    for (const p of resultado.partes) arquivos[`${arquivo}-${arquivoPeca(p)}.stl`] = stl(p, `Relevo3D ${nome} ${p.nome}`);
+  }
+  baixar(zip(arquivos), `${arquivo}-pecas-stl.zip`);
 });
 
 function nomeArquivo(texto: string) {

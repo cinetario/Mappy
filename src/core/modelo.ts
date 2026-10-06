@@ -10,6 +10,9 @@ import { caixaLimite, separarVerticesCoincidentes, type Malha } from './malha.ts
 import { solidoParaMalha, malhaParaSolido, type Solido, type Wasm } from './manifold.ts';
 import { alturasDaGrade, gerarBlocoTerreno, menorAltitude } from './terreno.ts';
 import { lerTiposDesligados } from './vias.ts';
+import type { Font } from 'opentype.js';
+import { gerarMoldura } from './moldura.ts';
+import { contornosTexto } from './texto.ts';
 import { coberturaPadrao, lerCobertura, type ConfigCobertura } from './cobertura.ts';
 import { intervaloAutomatico, niveis, tracarCurvas } from './curvas.ts';
 
@@ -51,6 +54,15 @@ export function contornoDoModelo(forma: Forma, porMetro: number): [number, numbe
   return pts;
 }
 
+export interface BlocoModelo {
+  /** A1, B1… (linha 1 = norte) */
+  rotulo: string;
+  /** x0, y0, x1, y1 no modelo */
+  caixa: [number, number, number, number];
+  partes: Parte[];
+  malhaUnica: Malha;
+}
+
 export interface Parte {
   /** identificador estável (base, terreno, faixa-1…) */
   id: string;
@@ -67,6 +79,10 @@ export interface ResultadoModelo {
   /** todas as peças fundidas (para o STL único) */
   malhaUnica: Malha;
   camadas: { avisos: string[]; estatisticas: EstatisticasCamadas; linhasPrevia: Float32Array[] } | null;
+  /** blocos (quando "dividir em blocos" está ligado) */
+  blocos: BlocoModelo[];
+  /** avisos da moldura/texto */
+  avisos: string[];
   curvas: InfoCurvas | null;
   unidade: 'mm' | 'm';
   largura: number;
@@ -187,7 +203,12 @@ function bilinear(v: Float32Array, nx: number, ny: number, fx: number, fy: numbe
   return (v[i] * (1 - ax) + v[i + 1] * ax) * (1 - ay) + (v[i + nx] * (1 - ax) + v[i + nx + 1] * ax) * ay;
 }
 
-export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: ParametrosModelo, dados?: DadosCamadas | null): ResultadoModelo {
+export interface ExtrasModelo {
+  /** fonte do texto da moldura (carregada por quem chama) */
+  fonte?: Font | null;
+}
+
+export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: ParametrosModelo, dados?: DadosCamadas | null, extras?: ExtrasModelo): ResultadoModelo {
   const caixa = caixaDaForma(forma);
   const { largura, altura } = dimensoesMetros(caixa);
   if (!(largura > 0 && altura > 0)) throw new Error('A área escolhida está vazia');
@@ -246,7 +267,7 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
     if (status !== 'NoError') throw new Error(`Falha no recorte do contorno: ${status}`);
     if (recortado.isEmpty()) throw new Error('O recorte do contorno ficou vazio');
 
-    const { min, max } = caixaLimite(solidoParaMalha(recortado));
+    const { max } = caixaLimite(solidoParaMalha(recortado));
     const zTopoTerreno = max[2];
 
     // ---- curvas de nível (da própria grade de elevação) ----
@@ -308,24 +329,53 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
       cortes.push({ id: 'terreno', nome: 'Terreno', cor: faixas?.[0].cor ?? p.corTerreno, zMin: zBase, zMax: Infinity });
     }
 
-    const partes: Parte[] = [];
-    const solidosPartes: Solido[] = [];
+    /** peças ainda como sólidos (a malha é gerada no fim, depois de moldura e blocos) */
+    const pecas: { id: string; nome: string; cor: string; solido: Solido; zMin: number; zMax: number }[] = [];
     for (const c of cortes) {
       let peca: Solido = recortado;
       if (Number.isFinite(c.zMin)) peca = guardar(peca.trimByPlane([0, 0, 1], c.zMin));
       if (Number.isFinite(c.zMax)) peca = guardar(peca.trimByPlane([0, 0, -1], -c.zMax));
       if (peca.isEmpty() || peca.volume() < 1e-9) continue;
-      solidosPartes.push(peca);
-      partes.push({
-        id: c.id, nome: c.nome, cor: c.cor, malha: limpa(peca),
-        zMin: Math.max(0, c.zMin), zMax: Math.min(zTopo, c.zMax),
-      });
+      pecas.push({ id: c.id, nome: c.nome, cor: c.cor, solido: peca, zMin: Math.max(0, c.zMin), zMax: Math.min(zTopo, c.zMax) });
     }
     for (const pc of camadasGeradas?.pecas ?? []) {
       if (pc.solido.isEmpty()) continue;
-      solidosPartes.push(pc.solido);
       const b = pc.solido.boundingBox();
-      partes.push({ id: pc.id, nome: pc.nome, cor: pc.cor, malha: limpa(pc.solido), zMin: b.min[2], zMax: b.max[2] });
+      pecas.push({ id: pc.id, nome: pc.nome, cor: pc.cor, solido: pc.solido, zMin: b.min[2], zMax: b.max[2] });
+    }
+
+    // ---- moldura e texto ----
+    const avisosModelo: string[] = [];
+    if (p.moldura) {
+      const mm = (v: number) => (real ? v / mmPorMetroImpressao : v);
+      const texto = p.texto.trim() && extras?.fonte ? contornosTexto(extras.fonte, p.texto.trim(), mm(p.textoTamanhoMm)) : null;
+      const m = gerarMoldura(wasm, contorno, {
+        estilo: p.molduraEstilo,
+        espessura: mm(p.molduraEspessuraMm),
+        altura: mm(p.molduraAlturaMm),
+        texto,
+        borda: p.textoBorda,
+        modoTexto: p.textoModo,
+        relevo: mm(p.textoRelevoMm),
+        camadas: real ? null : camadas,
+        larguraMinima: real ? 0 : LARGURA_MINIMA_MM,
+      });
+      guardar(m.moldura);
+      if (m.texto) guardar(m.texto);
+      avisosModelo.push(...m.avisos);
+      const base = pecas.find((x) => x.id === 'base');
+      if (p.molduraFundir && base) {
+        // moldura junto com a base: mesma peça, mesma cor
+        base.solido = guardar(wasm.Manifold.union(base.solido, m.moldura));
+        base.nome = 'Base e moldura';
+        base.zMax = Math.max(base.zMax, m.altura);
+      } else {
+        pecas.push({ id: 'moldura', nome: 'Moldura', cor: p.molduraCor, solido: m.moldura, zMin: 0, zMax: m.altura });
+      }
+      if (m.texto) {
+        const b = m.texto.boundingBox();
+        pecas.push({ id: 'texto', nome: 'Texto', cor: p.textoCor, solido: m.texto, zMin: b.min[2], zMax: b.max[2] });
+      }
     }
 
     // STL único: todas as peças fundidas num só sólido. As camadas só ENCOSTAM
@@ -335,20 +385,60 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
     // deslocadas 0,001 mm numa direção oblíqua: cada contato vira sobreposição
     // (fundida pela união) ou uma folga ínfima (sem vértices em comum).
     const d = tolerancia;
-    const paraUniao = solidosPartes.map((s, i) =>
-      (!ehTerreno(partes[i].id) ? guardar(s.translate(0.37 * d, 0.61 * d, -d)) : s));
-    const unico = paraUniao.length === 1 ? paraUniao[0] : guardar(wasm.Manifold.union(paraUniao));
-    const malhaUnica = limpa(unico);
+    const fundir = (lista: typeof pecas): Malha => {
+      const paraUniao = lista.map((x) => (!ehTerreno(x.id) ? guardar(x.solido.translate(0.37 * d, 0.61 * d, -d)) : x.solido));
+      return limpa(paraUniao.length === 1 ? paraUniao[0] : guardar(wasm.Manifold.union(paraUniao)));
+    };
+    const partes: Parte[] = pecas.map((x) => ({ id: x.id, nome: x.nome, cor: x.cor, malha: limpa(x.solido), zMin: x.zMin, zMax: x.zMax }));
+    const malhaUnica = fundir(pecas);
     const caixaFinal = caixaLimite(malhaUnica);
+
+    // ---- dividir em blocos (para imprimir mapas maiores que a mesa) ----
+    const blocos: BlocoModelo[] = [];
+    if (p.blocos && p.blocosX * p.blocosY > 1) {
+      const [x0, y0] = caixaFinal.min;
+      const [x1, y1] = caixaFinal.max;
+      const nx = p.blocosX;
+      const ny = p.blocosY;
+      for (let j = ny - 1; j >= 0; j--) {
+        for (let i = 0; i < nx; i++) {
+          // linha 1 = norte (em cima); colunas A, B, C… de oeste para leste
+          const rotulo = `${String.fromCharCode(65 + i)}${ny - j}`;
+          const bx0 = x0 + ((x1 - x0) * i) / nx;
+          const bx1 = x0 + ((x1 - x0) * (i + 1)) / nx;
+          const by0 = y0 + ((y1 - y0) * j) / ny;
+          const by1 = y0 + ((y1 - y0) * (j + 1)) / ny;
+          const doBloco: typeof pecas = [];
+          for (const x of pecas) {
+            let s = x.solido;
+            if (i > 0) s = guardar(s.trimByPlane([1, 0, 0], bx0));
+            if (i < nx - 1) s = guardar(s.trimByPlane([-1, 0, 0], -bx1));
+            if (j > 0) s = guardar(s.trimByPlane([0, 1, 0], by0));
+            if (j < ny - 1) s = guardar(s.trimByPlane([0, -1, 0], -by1));
+            if (s.isEmpty() || s.volume() < 1e-9) continue;
+            doBloco.push({ ...x, solido: s });
+          }
+          if (!doBloco.length) continue;
+          blocos.push({
+            rotulo,
+            caixa: [bx0, by0, bx1, by1],
+            partes: doBloco.map((x) => ({ id: x.id, nome: x.nome, cor: x.cor, malha: limpa(x.solido), zMin: x.zMin, zMax: x.zMax })),
+            malhaUnica: fundir(doBloco),
+          });
+        }
+      }
+    }
 
     return {
       partes,
       malhaUnica,
+      blocos,
+      avisos: avisosModelo,
       camadas: camadasGeradas ? { avisos: camadasGeradas.avisos, estatisticas: camadasGeradas.estatisticas, linhasPrevia: camadasGeradas.linhasPrevia } : null,
       curvas: infoCurvas,
       unidade: real ? 'm' : 'mm',
-      largura: max[0] - min[0],
-      profundidade: max[1] - min[1],
+      largura: caixaFinal.max[0] - caixaFinal.min[0],
+      profundidade: caixaFinal.max[1] - caixaFinal.min[1],
       alturaMax: caixaFinal.max[2],
       porMetro,
       escala: real ? 1 : 1000 / porMetro,

@@ -1,5 +1,8 @@
 // Web Worker: baixa elevação e dados do OSM e monta a malha sem travar a tela.
 import urlWasm from 'manifold-3d/manifold.wasm?url';
+import urlAnton from '../fontes/Anton-Regular.ttf?url';
+import urlArchivo from '../fontes/ArchivoBlack-Regular.ttf?url';
+import urlBebas from '../fontes/BebasNeue-Regular.ttf?url';
 import type { DadosCamadas } from '../core/camadas.ts';
 import { amostrarElevacao, type GradeElevacao } from '../core/elevacao.ts';
 import type { Parametros } from '../core/estado.ts';
@@ -10,11 +13,12 @@ import { gerarModelo, planejarAmostragem } from '../core/modelo.ts';
 import { extrairAgua, extrairArvores, extrairCobertura, extrairPredios, extrairVias, filtrarPorArea, type GrupoOSM } from '../core/osm.ts';
 import type { Malha } from '../core/malha.ts';
 import { escreverStl, lerStl } from '../core/stl.ts';
+import { carregarFonte, type NomeFonteTexto } from '../core/texto.ts';
 import { verificarMalha } from '../core/verificacao.ts';
 import { baixarOSM, indiceCobre, obterInfoIndiceLocal } from '../navegador/osm-cliente.ts';
 import { FONTES_TILES, gradeCopernicus } from '../navegador/tiles.ts';
 import { Cancelado } from '../core/blocos.ts';
-import type { BlocosFaltando, Contagem, MensagemDoWorker, MensagemParaWorker, ResultadoGeracao } from './protocolo.ts';
+import type { BlocoGerado, BlocosFaltando, Contagem, MensagemDoWorker, MensagemParaWorker, ParteGerada, ResultadoGeracao } from './protocolo.ts';
 
 /** Verifica a malha como ela fica no arquivo (STL não guarda topologia: vértices são soldados pela posição). */
 const verificarComoStl = (m: Malha) => verificarMalha(lerStl(escreverStl(m)));
@@ -27,6 +31,17 @@ let ultimaGrade: { chave: string; grade: GradeElevacao & { aviso?: string } } | 
 const NOMES: Record<GrupoOSM, string> = { predios: 'prédios', vias: 'ruas', agua: 'água', cobertura: 'cobertura do solo', arvores: 'árvores' };
 
 const cancelamentos = new Map<number, AbortController>();
+
+const URL_FONTES: Record<NomeFonteTexto, string> = { archivo: urlArchivo, bebas: urlBebas, anton: urlAnton };
+
+/** Fonte do texto da moldura (baixada uma vez; só quando há texto). */
+async function obterFonte(params: Parametros) {
+  if (!params.moldura || !params.texto.trim()) return null;
+  const nome = params.textoFonte as NomeFonteTexto;
+  const resp = await fetch(URL_FONTES[nome]);
+  if (!resp.ok) throw new Error(`Não foi possível carregar a fonte do texto (${resp.status}).`);
+  return carregarFonte(nome, await resp.arrayBuffer());
+}
 
 self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
   if (ev.data.tipo === 'cancelar') {
@@ -105,19 +120,33 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
 
     if (sinal.aborted) throw new Cancelado();
     progresso('Montando a malha', 0.75);
-    const r = gerarModelo(wasm, grade, forma, params, dados);
+    const fonte = await obterFonte(params);
+    const r = gerarModelo(wasm, grade, forma, params, dados, { fonte });
     progresso('Verificando as peças', 0.95);
 
     const transferir: Transferable[] = [];
+    const parte = (p: (typeof r.partes)[number]): ParteGerada => {
+      transferir.push(p.malha.posicoes.buffer, p.malha.indices.buffer);
+      return {
+        id: p.id, nome: p.nome, cor: p.cor, zMin: p.zMin, zMax: p.zMax,
+        posicoes: p.malha.posicoes, indices: p.malha.indices,
+        verificacao: verificarComoStl(p.malha),
+      };
+    };
+    const blocos: BlocoGerado[] = r.blocos.map((b) => {
+      transferir.push(b.malhaUnica.posicoes.buffer, b.malhaUnica.indices.buffer);
+      return {
+        rotulo: b.rotulo,
+        coluna: b.rotulo.charCodeAt(0) - 65,
+        linha: Number(b.rotulo.slice(1)) - 1,
+        partes: b.partes.map(parte),
+        unica: b.malhaUnica,
+        verificacao: verificarComoStl(b.malhaUnica),
+      };
+    });
     const resultado: ResultadoGeracao = {
-      partes: r.partes.map((p) => {
-        transferir.push(p.malha.posicoes.buffer, p.malha.indices.buffer);
-        return {
-          id: p.id, nome: p.nome, cor: p.cor, zMin: p.zMin, zMax: p.zMax,
-          posicoes: p.malha.posicoes, indices: p.malha.indices,
-          verificacao: verificarComoStl(p.malha),
-        };
-      }),
+      partes: r.partes.map(parte),
+      blocos,
       unica: r.malhaUnica,
       verificacao: verificarComoStl(r.malhaUnica),
       info: {
@@ -139,7 +168,7 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
         aviso: grade.aviso,
         contagem,
         estatisticasCamadas: r.camadas?.estatisticas ?? null,
-        avisosCamadas: [...avisosFonte, ...faltando.map(textoFaltando), ...(r.camadas?.avisos ?? [])],
+        avisosCamadas: [...avisosFonte, ...faltando.map(textoFaltando), ...(r.camadas?.avisos ?? []), ...r.avisos],
         fonteOsm,
         faltando,
         curvas: r.curvas,

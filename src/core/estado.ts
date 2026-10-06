@@ -132,6 +132,28 @@ export const PARAMETROS = {
   curvasImprimir: { tipo: 'booleano', url: 'kp', padrao: true },
   curvasAlturaMm: { tipo: 'numero', url: 'kh', padrao: 0.2, min: 0.04, max: 3 },
   curvasLarguraMm: { tipo: 'numero', url: 'kw', padrao: 0.8, min: 0.2, max: 5 },
+
+  // ===== Moldura e texto =====
+  moldura: { tipo: 'booleano', url: 'mf', padrao: false },
+  molduraEstilo: opcao('me', ['reta', 'arredondada'] as const, 'reta'),
+  molduraCor: { ...cor('#3b3b3b'), url: 'mc' },
+  molduraEspessuraMm: { tipo: 'numero', url: 'mw', padrao: 3, min: 0.8, max: 30 },
+  /** altura total da moldura, a partir da mesa */
+  molduraAlturaMm: { tipo: 'numero', url: 'mh', padrao: 5, min: 0.6, max: 100 },
+  /** junta a moldura à base (mesma peça e cor) */
+  molduraFundir: { tipo: 'booleano', url: 'mj', padrao: false },
+  texto: { tipo: 'texto', url: 'tx', padrao: '', validar: (v: string) => v.replace(/[\u0000-\u001f]/g, '').slice(0, 60) },
+  textoTamanhoMm: { tipo: 'numero', url: 'ts', padrao: 6, min: 2, max: 40 },
+  textoFonte: opcao('tf', ['archivo', 'bebas', 'anton'] as const, 'archivo'),
+  textoCor: { ...cor('#f2efe8'), url: 'tc' },
+  textoBorda: opcao('tb', ['inferior', 'superior', 'esquerda', 'direita'] as const, 'inferior'),
+  textoModo: opcao('tm', ['relevo', 'gravado'] as const, 'relevo'),
+  textoRelevoMm: { tipo: 'numero', url: 'th', padrao: 0.8, min: 0.2, max: 5 },
+
+  // ===== Dividir em blocos =====
+  blocos: { tipo: 'booleano', url: 'bl', padrao: false },
+  blocosX: { tipo: 'numero', url: 'bx', padrao: 2, min: 1, max: 8, inteiro: true },
+  blocosY: { tipo: 'numero', url: 'by', padrao: 2, min: 1, max: 8, inteiro: true },
 } as const satisfies Record<string, Def>;
 
 export type NomeParametro = keyof typeof PARAMETROS;

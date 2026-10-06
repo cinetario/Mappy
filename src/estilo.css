@@ -234,3 +234,13 @@ main { display: grid; grid-template-columns: 1fr 1fr; min-width: 0; }
   main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
   #previa { border-left: 0; border-top: 1px solid var(--borda); }
 }
+
+/* ---------- exportação ---------- */
+#exportar { margin-top: 8px; display: grid; gap: 6px; }
+#exportar[hidden] { display: none; }
+#exportar .linha button { flex: 1; }
+#filamentos { margin-top: 2px; font-size: 12px; }
+#filamentos table { border-collapse: collapse; width: 100%; }
+#filamentos td { padding: 1px 4px 1px 0; vertical-align: top; }
+#filamentos td:first-child { white-space: nowrap; }
+#filamentos .suave { color: var(--suave); }

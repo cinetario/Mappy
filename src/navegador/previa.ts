@@ -55,7 +55,7 @@ export function criarPrevia(container: HTMLElement) {
      * Devolve o tamanho do quadrado da grade do chão.
      */
     mostrar(
-      pecas: { id: string; malha: Malha; cor: string; opacidade?: number; arestas?: boolean }[],
+      pecas: { id: string; malha: Malha; cor: string; opacidade?: number; arestas?: boolean; deslocar?: [number, number] }[],
       enquadrar = true,
       linhas?: { id: string; pontos: Float32Array[]; cor: string },
     ): number {
@@ -68,7 +68,7 @@ export function criarPrevia(container: HTMLElement) {
         grupo.remove(filho);
       }
       const caixa = new THREE.Box3();
-      for (const { id, malha, cor, opacidade = 1, arestas } of pecas) {
+      for (const { id, malha, cor, opacidade = 1, arestas, deslocar } of pecas) {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(malha.posicoes, 3));
         geo.setIndex(new THREE.BufferAttribute(malha.indices, 1));
@@ -84,13 +84,16 @@ export function criarPrevia(container: HTMLElement) {
           geo.computeVertexNormals();
         }
         geo.computeBoundingBox();
-        caixa.union(geo.boundingBox!);
+        const caixaPeca = geo.boundingBox!.clone();
+        if (deslocar) caixaPeca.translate(new THREE.Vector3(deslocar[0], deslocar[1], 0));
+        caixa.union(caixaPeca);
         const material = new THREE.MeshStandardMaterial({
           color: cor, roughness: 0.85, wireframe: aramado,
           transparent: opacidade < 1, opacity: opacidade, depthWrite: opacidade >= 1,
         });
         const mesh = new THREE.Mesh(geo, material);
         mesh.name = id;
+        if (deslocar) mesh.position.set(deslocar[0], deslocar[1], 0);
         mesh.visible = visivel(id);
         if (arestas) {
           const linhas = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({ color: 0x3a3630 }));

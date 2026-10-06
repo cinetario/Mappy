@@ -72,12 +72,25 @@ export interface InfoModelo {
   curvas: InfoCurvas | null;
 }
 
+/** Um bloco do modelo dividido (para imprimir mapas maiores que a mesa). */
+export interface BlocoGerado {
+  /** A1, B1… (coluna de oeste para leste, linha 1 = norte) */
+  rotulo: string;
+  coluna: number;
+  linha: number;
+  partes: ParteGerada[];
+  unica: { posicoes: Float32Array; indices: Uint32Array };
+  verificacao: ResultadoVerificacao;
+}
+
 export interface ResultadoGeracao {
   partes: ParteGerada[];
   /** todas as peças fundidas (STL único) */
   unica: { posicoes: Float32Array; indices: Uint32Array };
   verificacao: ResultadoVerificacao;
   info: InfoModelo;
+  /** blocos (vazio quando "dividir em blocos" está desligado) */
+  blocos: BlocoGerado[];
   /** curvas de nível só para a visualização (x, y, z, …) */
   linhasPrevia: Float32Array[];
 }

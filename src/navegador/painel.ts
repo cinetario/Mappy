@@ -142,6 +142,16 @@ export function opcoes(
   });
 }
 
+// ---------- texto livre ----------
+export function textoLivre(nome: NomeParametro, rotulo: string, aoMudar: AoMudar, o: Comum & { maximo?: number; exemplo?: string } = {}): Controle {
+  const entrada = h('input', { type: 'text', maxlength: String(o.maximo ?? 60), placeholder: o.exemplo ?? '', spellcheck: 'false' }) as HTMLInputElement;
+  const label = h('label', { class: 'campo' }, h('span', { class: 'rotulo' }, rotulo), entrada);
+  entrada.addEventListener('input', () => aoMudar(nome, entrada.value));
+  return comComum(label, o, (c) => {
+    if (document.activeElement !== entrada) entrada.value = String(c.params[nome]);
+  });
+}
+
 // ---------- cor ----------
 export function cor(nome: NomeParametro, rotulo: string, aoMudar: AoMudar, o: Comum = {}): Controle {
   const entrada = h('input', { type: 'color' }) as HTMLInputElement;
