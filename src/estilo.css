@@ -94,7 +94,34 @@ footer { margin-top: auto; font-size: 11px; color: var(--suave); line-height: 1.
 footer a { color: inherit; }
 
 main { display: grid; grid-template-columns: 1fr 1fr; min-width: 0; }
-#mapa, #previa { position: relative; min-width: 0; min-height: 0; }
+#mapa-area, #previa { position: relative; min-width: 0; min-height: 0; }
+#mapa { position: absolute; inset: 0; }
+
+#ferramentas {
+  position: absolute; top: 10px; left: 10px; right: 56px;
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+  pointer-events: none;
+}
+#ferramentas > * { pointer-events: auto; }
+#ferramentas button {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  border-color: var(--borda);
+  color: var(--texto);
+}
+#ferramentas button.principal { background: var(--destaque); color: var(--destaque-texto); border-color: var(--destaque); }
+#ferramentas button.ativo { background: var(--destaque); color: var(--destaque-texto); border-color: var(--destaque); }
+#ferramentas svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+#ferramentas .separador { width: 8px; }
+#dica-ferramenta {
+  position: absolute; left: 10px; top: 52px; max-width: 420px;
+  background: rgba(35, 33, 28, 0.85); color: #fff; font-size: 12px;
+  padding: 6px 10px; border-radius: 6px; pointer-events: none;
+}
+
+#progresso { height: 4px; background: var(--borda); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+#progresso-barra { height: 100%; width: 0; background: var(--destaque); transition: width 0.2s; }
 #previa { background: linear-gradient(#e9eef0, #cfd8dc); border-left: 1px solid var(--borda); }
 #previa canvas { display: block; }
 #previa-vazia {

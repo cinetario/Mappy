@@ -1,39 +1,92 @@
 import './estilo.css';
-import { amostrarElevacao, type GradeElevacao } from './core/elevacao.ts';
-import { dimensoesMetros, formatarCoordenadas, type Retangulo } from './core/geo.ts';
+import {
+  PARAMETROS, estadoParaUrl, urlParaEstado, validarParametro,
+  type Estado, type NomeParametro,
+} from './core/estado.ts';
+import { areaM2, caixaDaForma, dimensoesMetros, formatarCoordenadas, poligonoSeCruza, type Forma } from './core/geo.ts';
+import type { Malha } from './core/malha.ts';
 import { escreverStl } from './core/stl.ts';
-import { gerarTerreno, type ModeloTerreno } from './core/terreno.ts';
-import { verificarMalha } from './core/verificacao.ts';
-import { criarMapa } from './navegador/mapa.ts';
+import { criarDesenho, type Ferramenta } from './navegador/desenho.ts';
+import { criarGerador } from './navegador/gerador.ts';
+import { criarMapa, enquadrar } from './navegador/mapa.ts';
 import { CORES_CAMADAS, criarPrevia } from './navegador/previa.ts';
-import { carregarTileTerreno } from './navegador/tiles.ts';
+import type { ResultadoGeracao } from './trabalhador/protocolo.ts';
 
 // Limites usados nos avisos
-const AREA_MAX_OSM_KM2 = 25; // acima disso o Overpass (prédios/ruas, fase 2) fica lento ou recusa
+const AREA_MAX_OSM_KM2 = 25; // acima disso o Overpass (prédios/ruas) fica lento ou recusa
 const AREA_MAX_KM2 = 250_000; // acima disso a projeção local distorce demais
 const MESA_IMPRESSORA_MM = 270; // volume útil da Snapmaker U1
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const entrada = (id: string) => $<HTMLInputElement>(id);
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const botao = (id: string) => $<HTMLButtonElement>(id);
 
-let area: Retangulo | null = null;
-let nomeLocal = '';
-let grade: GradeElevacao | null = null;
-let gradeChave = '';
-let modelo: ModeloTerreno | null = null;
+// ---------- estado (vem da URL) ----------
+const estado: Estado = urlParaEstado(location.hash);
+let modelo: (ResultadoGeracao & Malha) | null = null;
+let modeloDesatualizado = false;
 
 const previa = criarPrevia($('previa'));
-const mapa = criarMapa($('mapa'), selecionarArea, (ativo) => {
-  $('btn-desenhar').classList.toggle('ativo', ativo);
-  $('dica-desenho').textContent = ativo
-    ? 'Clique e arraste no mapa para desenhar. Esc cancela.'
-    : 'Clique em "Desenhar retângulo" e arraste no mapa.';
+const gerador = criarGerador();
+const mapa = criarMapa($('mapa'));
+const desenho = criarDesenho(mapa, {
+  aoMudar(forma, final) {
+    estado.forma = forma;
+    atualizarArea();
+    if (final) {
+      salvarNaUrl();
+      if (modelo) agendarGeracao(400);
+    }
+  },
+  aoMudarFerramenta: mostrarFerramenta,
 });
+
+if (estado.forma) {
+  desenho.definirForma(estado.forma);
+  enquadrar(mapa, caixaDaForma(estado.forma), false);
+}
+
+// ---------- URL ----------
+function salvarNaUrl() {
+  const hash = estadoParaUrl(estado);
+  if (hash !== location.hash.replace(/^#/, '')) history.replaceState(null, '', hash ? `#${hash}` : location.pathname);
+}
+window.addEventListener('hashchange', () => {
+  // o usuário colou outro link na mesma aba
+  Object.assign(estado, urlParaEstado(location.hash));
+  aplicarParametrosNaTela();
+  desenho.definirForma(estado.forma);
+  if (estado.forma) enquadrar(mapa, caixaDaForma(estado.forma));
+  atualizarArea();
+  if (estado.forma) agendarGeracao(0);
+});
+
+// ---------- ferramentas de desenho ----------
+const DICAS: Record<Ferramenta, string> = {
+  retangulo: 'Clique e arraste para desenhar o retângulo. Esc cancela.',
+  circulo: 'Clique no centro e arraste para definir o raio. Esc cancela.',
+  hexagono: 'Clique no centro e arraste para definir o tamanho. Depois, gire pela alça do vértice. Esc cancela.',
+  poligono: 'Clique ponto a ponto. Para fechar: clique no primeiro ponto, dê duplo clique ou aperte Enter. Backspace desfaz o último ponto. Esc cancela.',
+};
+
+for (const b of document.querySelectorAll<HTMLButtonElement>('[data-ferramenta]')) {
+  b.addEventListener('click', () => desenho.iniciar(b.dataset.ferramenta as Ferramenta));
+}
+botao('btn-cancelar').addEventListener('click', () => desenho.cancelar());
+
+function mostrarFerramenta(f: Ferramenta | null) {
+  for (const b of document.querySelectorAll<HTMLButtonElement>('[data-ferramenta]')) {
+    b.classList.toggle('ativo', b.dataset.ferramenta === f);
+  }
+  botao('btn-cancelar').hidden = !f;
+  const dica = $('dica-ferramenta');
+  dica.hidden = !f;
+  if (f) dica.textContent = DICAS[f];
+}
 
 // ---------- busca ----------
 $('form-busca').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const q = entrada('busca').value.trim();
+  const q = $<HTMLInputElement>('busca').value.trim();
   const lista = $('resultados');
   if (!q) return;
   lista.innerHTML = '<li>Buscando…</li>';
@@ -47,8 +100,10 @@ $('form-busca').addEventListener('submit', async (e) => {
       const li = document.createElement('li');
       li.textContent = item.display_name;
       li.addEventListener('click', () => {
-        nomeLocal = item.name || item.display_name.split(',')[0];
-        mapa.irPara(item.boundingbox.map(Number) as [number, number, number, number]);
+        estado.nome = item.name || item.display_name.split(',')[0];
+        salvarNaUrl();
+        const [sul, norte, oeste, leste] = item.boundingbox.map(Number);
+        enquadrar(mapa, { oeste, sul, leste, norte });
         lista.innerHTML = '';
       });
       lista.appendChild(li);
@@ -62,42 +117,51 @@ $('form-busca').addEventListener('submit', async (e) => {
   }
 });
 
-// ---------- área ----------
-$('btn-desenhar').addEventListener('click', () => mapa.iniciarDesenho());
-$('btn-visivel').addEventListener('click', () => mapa.usarAreaVisivel());
-
-function selecionarArea(r: Retangulo) {
-  area = r;
-  modelo = null;
-  ($('btn-gerar') as HTMLButtonElement).disabled = false;
-  ($('btn-stl') as HTMLButtonElement).disabled = true;
-  atualizarInfoArea();
-}
-
-function atualizarInfoArea() {
+// ---------- informações da área ----------
+function atualizarArea() {
   const info = $('info-area');
-  if (!area) {
+  const f = estado.forma;
+  botao('btn-gerar').disabled = !f;
+  botao('btn-gerar-mapa').disabled = !f;
+  $('dica-area').hidden = !!f;
+  if (!f) {
     info.hidden = true;
     return;
   }
-  const { largura, altura } = dimensoesMetros(area);
-  const km2 = (largura * altura) / 1e6;
-  const tamanho = Number(entrada('p-tamanho').value) || 150;
+  const { largura, altura } = dimensoesMetros(caixaDaForma(f));
+  const km2 = areaM2(f) / 1e6;
+  const tamanho = estado.params.tamanhoMm;
   const escala = tamanho / Math.max(largura, altura); // mm por metro
   const avisos: string[] = [];
   if (km2 > AREA_MAX_KM2) avisos.push('Área enorme: a projeção fica distorcida. Escolha uma região menor.');
   else if (km2 > AREA_MAX_OSM_KM2) {
-    avisos.push(`Área grande para prédios e ruas (acima de ~${AREA_MAX_OSM_KM2} km² o Overpass fica lento ou recusa). Para só o relevo, tudo bem.`);
+    avisos.push(`Área grande para prédios e ruas (acima de ~${AREA_MAX_OSM_KM2} km² o download do OpenStreetMap fica lento). Para só o relevo, tudo bem.`);
   }
   if (km2 < 0.01) avisos.push('Área muito pequena: o relevo vai sair quase plano.');
   if (tamanho > MESA_IMPRESSORA_MM) avisos.push(`O modelo passa de ${MESA_IMPRESSORA_MM} mm, o limite da mesa da Snapmaker U1.`);
+  if (f.tipo === 'poligono' && poligonoSeCruza(f.pontos)) {
+    avisos.push('O polígono cruza a si mesmo. Arraste os vértices para desfazer o cruzamento.');
+  }
 
   info.innerHTML = `
-    <div><strong>${formatarKm(largura)} × ${formatarKm(altura)}</strong> (${km2 < 10 ? km2.toFixed(2) : Math.round(km2).toLocaleString('pt-BR')} km²)</div>
+    <div><strong>${descreverForma(f, largura, altura)}</strong> · ${km2 < 10 ? km2.toFixed(2) : Math.round(km2).toLocaleString('pt-BR')} km²</div>
     <div>Modelo: ${(largura * escala).toFixed(0)} × ${(altura * escala).toFixed(0)} mm · 1 mm = ${(1 / escala).toFixed(1)} m</div>
-    <div class="dica">Centro: ${formatarCoordenadas(area)}</div>
+    <div class="dica">Centro: ${formatarCoordenadas(caixaDaForma(f))} · arraste as alças brancas para ajustar${f.tipo === 'poligono' ? ' (botão direito apaga um vértice)' : ''}</div>
     ${avisos.map((a) => `<div class="aviso">${a}</div>`).join('')}`;
   info.hidden = false;
+}
+
+function descreverForma(f: Forma, largura: number, altura: number) {
+  switch (f.tipo) {
+    case 'retangulo':
+      return `Retângulo ${formatarKm(largura)} × ${formatarKm(altura)}`;
+    case 'circulo':
+      return `Círculo com ${formatarKm(f.raioM * 2)} de diâmetro`;
+    case 'hexagono':
+      return `Hexágono com ${formatarKm(f.raioM * 2)} entre vértices opostos`;
+    case 'poligono':
+      return `Polígono de ${f.pontos.length} vértices, ${formatarKm(largura)} × ${formatarKm(altura)}`;
+  }
 }
 
 function formatarKm(m: number) {
@@ -105,79 +169,116 @@ function formatarKm(m: number) {
 }
 
 // ---------- parâmetros ----------
-const lerParametros = () => ({
-  tamanhoMm: limitar(Number(entrada('p-tamanho').value), 20, 400, 150),
-  exagero: limitar(Number(entrada('p-exagero').value), 1, 5, 1.5),
-  baseMm: limitar(Number(entrada('p-base').value), 0.6, 30, 3),
-  achatarMar: entrada('p-mar').checked,
-});
-const limitar = (v: number, min: number, max: number, padrao: number) =>
-  Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : padrao;
+const entradas = [...document.querySelectorAll<HTMLInputElement>('[data-param]')];
 
-entrada('p-exagero').addEventListener('input', () => {
-  $('v-exagero').textContent = `${Number(entrada('p-exagero').value).toFixed(1)}x`;
-});
-entrada('p-resolucao').addEventListener('input', () => {
-  $('v-resolucao').textContent = entrada('p-resolucao').value;
-});
-
-// Se o modelo já foi gerado, mudanças de parâmetros atualizam a prévia na hora
-// (sem baixar nada de novo; só a resolução exige nova amostragem).
-let espera: number | undefined;
-for (const id of ['p-tamanho', 'p-exagero', 'p-base', 'p-mar', 'p-resolucao']) {
-  entrada(id).addEventListener('input', () => {
-    atualizarInfoArea();
-    if (!modelo) return;
-    clearTimeout(espera);
-    espera = window.setTimeout(gerar, id === 'p-resolucao' ? 500 : 150);
-  });
+function aplicarParametrosNaTela() {
+  for (const el of entradas) {
+    const nome = el.dataset.param as NomeParametro;
+    const def = PARAMETROS[nome];
+    const v = estado.params[nome];
+    if (def.tipo === 'booleano') el.checked = v as boolean;
+    else {
+      el.min = String(def.min);
+      el.max = String(def.max);
+      el.value = String(v);
+    }
+  }
+  atualizarRotulos();
 }
 
+function atualizarRotulos() {
+  for (const el of document.querySelectorAll<HTMLElement>('[data-valor]')) {
+    const v = estado.params[el.dataset.valor as NomeParametro] as number;
+    const casas = Number(el.dataset.casas ?? 0);
+    el.textContent = `${v.toFixed(casas)}${el.dataset.sufixo ?? ''}`;
+  }
+}
+
+for (const el of entradas) {
+  const nome = el.dataset.param as NomeParametro;
+  const aplicar = () => {
+    const bruto = el.type === 'checkbox' ? el.checked : el.value;
+    const novo = validarParametro(nome, bruto);
+    if (novo === estado.params[nome]) return;
+    (estado.params as Record<NomeParametro, number | boolean>)[nome] = novo;
+    atualizarRotulos();
+    atualizarArea();
+    salvarNaUrl();
+    if (modelo) agendarGeracao(nome === 'resolucao' ? 500 : 150);
+  };
+  el.addEventListener('input', () => {
+    // número digitado pela metade (ex.: "1" a caminho de "150") só é aplicado ao sair do campo
+    if (el.type === 'number' && (el.value === '' || !el.checkValidity())) return;
+    aplicar();
+  });
+  // ao sair do campo: aplica o valor (limitado à faixa permitida) e mostra o valor usado
+  el.addEventListener('change', () => {
+    aplicar();
+    aplicarParametrosNaTela();
+  });
+}
+aplicarParametrosNaTela();
+atualizarArea();
+
 // ---------- geração ----------
-$('btn-gerar').addEventListener('click', gerar);
+botao('btn-gerar').addEventListener('click', () => gerar());
+botao('btn-gerar-mapa').addEventListener('click', () => gerar());
+
+let espera: number | undefined;
+function agendarGeracao(ms: number) {
+  clearTimeout(espera);
+  espera = window.setTimeout(gerar, ms);
+}
 
 let gerando = false;
+let chaveEnquadrada = '';
+
 async function gerar() {
-  if (!area || gerando) return;
+  const forma = estado.forma;
+  if (!forma) return;
+  if (gerando) {
+    // já tem uma geração em andamento: gera de novo quando ela terminar
+    modeloDesatualizado = true;
+    return;
+  }
   gerando = true;
-  const botao = $('btn-gerar') as HTMLButtonElement;
-  botao.disabled = true;
+  modeloDesatualizado = false;
+  const barra = $('progresso');
+  barra.hidden = false;
   try {
-    const resolucao = Number(entrada('p-resolucao').value);
-    const chave = `${area.oeste},${area.sul},${area.leste},${area.norte},${resolucao}`;
-    const mesmaArea = gradeChave.startsWith(`${area.oeste},${area.sul},${area.leste},${area.norte},`);
-    const tamanhoAnterior = modelo?.larguraMm;
-    if (!grade || chave !== gradeChave) {
-      status('Baixando dados de elevação…');
-      grade = await amostrarElevacao(area, resolucao, carregarTileTerreno);
-      gradeChave = chave;
-    }
-    status('Gerando malha…');
-    await new Promise((r) => setTimeout(r, 0)); // deixa a tela atualizar
-    modelo = gerarTerreno(grade, lerParametros());
-    const enquadrar = !mesmaArea || tamanhoAnterior !== modelo.larguraMm;
-    previa.mostrar([{ malha: modelo, cor: CORES_CAMADAS.terreno }], enquadrar);
+    const params = { ...estado.params };
+    const r = await gerador.gerar(forma, params, (etapa, fracao) => {
+      status(`${etapa}…`);
+      $('progresso-barra').style.width = `${Math.round(fracao * 100)}%`;
+    });
+    modelo = { ...r, posicoes: r.posicoes, indices: r.indices };
+
+    // reposiciona a câmera só quando a área ou o tamanho mudam
+    const chave = `${JSON.stringify(forma)}|${params.tamanhoMm}`;
+    previa.mostrar([{ malha: modelo, cor: CORES_CAMADAS.terreno }], chave !== chaveEnquadrada);
+    chaveEnquadrada = chave;
     $('previa-vazia').hidden = true;
 
-    const v = verificarMalha(modelo);
     const medidas = $('previa-medidas');
-    medidas.textContent = `${modelo.larguraMm.toFixed(1)} × ${modelo.profundidadeMm.toFixed(1)} × ${modelo.alturaMaxMm.toFixed(1)} mm`;
+    medidas.textContent = `${r.larguraMm.toFixed(1)} × ${r.profundidadeMm.toFixed(1)} × ${r.alturaMaxMm.toFixed(1)} mm`;
     medidas.hidden = false;
+    const v = r.verificacao;
     const avisoAltura =
-      modelo.alturaMaxMm > MESA_IMPRESSORA_MM
-        ? `<div class="aviso">Altura de ${modelo.alturaMaxMm.toFixed(0)} mm passa do limite de ${MESA_IMPRESSORA_MM} mm da impressora. Reduza o exagero ou o tamanho.</div>`
+      r.alturaMaxMm > MESA_IMPRESSORA_MM
+        ? `<div class="aviso">Altura de ${r.alturaMaxMm.toFixed(0)} mm passa do limite de ${MESA_IMPRESSORA_MM} mm da impressora. Reduza o exagero ou o tamanho.</div>`
         : '';
     status(
       v.valida
-        ? `<span class="ok">✓ Malha fechada e válida</span> · ${v.triangulos.toLocaleString('pt-BR')} triângulos · zoom de elevação ${grade.zoom}${avisoAltura}`
+        ? `<span class="ok">✓ Malha fechada e válida</span> · ${v.triangulos.toLocaleString('pt-BR')} triângulos · zoom de elevação ${r.zoom}${avisoAltura}`
         : `<span class="erro">✗ Malha com problemas: ${v.erros.join('; ')}</span>`,
     );
-    ($('btn-stl') as HTMLButtonElement).disabled = !v.valida;
+    botao('btn-stl').disabled = !v.valida;
   } catch (erro) {
     status(`<span class="erro">Erro: ${erro instanceof Error ? erro.message : erro}</span>`);
   } finally {
     gerando = false;
-    botao.disabled = false;
+    barra.hidden = true;
+    if (modeloDesatualizado) agendarGeracao(0);
   }
 }
 
@@ -187,12 +288,14 @@ function status(html: string) {
   el.hidden = false;
 }
 
+// Link com área: gera o modelo ao abrir a página (os dados vêm do cache)
+if (estado.forma) agendarGeracao(0);
+
 // ---------- exportação ----------
-$('btn-stl').addEventListener('click', () => {
-  if (!modelo || !area) return;
-  const p = lerParametros();
-  const nome = nomeArquivo(nomeLocal || formatarCoordenadas(area));
-  baixar(new Blob([escreverStl(modelo, `Relevo3D ${nome}`)], { type: 'model/stl' }), `${nome}-${p.tamanhoMm}mm.stl`);
+botao('btn-stl').addEventListener('click', () => {
+  if (!modelo || !estado.forma) return;
+  const nome = nomeArquivo(estado.nome || formatarCoordenadas(caixaDaForma(estado.forma)));
+  baixar(new Blob([escreverStl(modelo, `Relevo3D ${nome}`)], { type: 'model/stl' }), `${nome}-${estado.params.tamanhoMm}mm.stl`);
 });
 
 function nomeArquivo(texto: string) {

@@ -22,14 +22,19 @@ export interface ModeloTerreno extends Malha {
   mmPorMetro: number;
 }
 
-export function gerarTerreno(grade: GradeElevacao, p: ParametrosTerreno): ModeloTerreno {
+/**
+ * Gera o bloco de terreno centrado na origem. `mmPorMetro` permite usar a
+ * escala do contorno escolhido (quando a grade é um pouco maior que ele);
+ * sem ele, o lado maior da grade vira `tamanhoMm`.
+ */
+export function gerarTerreno(grade: GradeElevacao, p: ParametrosTerreno, mmPorMetroFixo?: number): ModeloTerreno {
   const { nx, ny } = grade;
   if (nx < 2 || ny < 2) throw new Error('A grade precisa de pelo menos 2x2 pontos');
   if (!(p.tamanhoMm > 0) || !(p.baseMm > 0) || !(p.exagero > 0)) {
     throw new Error('Tamanho, base e exagero precisam ser maiores que zero');
   }
 
-  const mmPorMetro = p.tamanhoMm / Math.max(grade.larguraM, grade.alturaM);
+  const mmPorMetro = mmPorMetroFixo ?? p.tamanhoMm / Math.max(grade.larguraM, grade.alturaM);
   const larguraMm = grade.larguraM * mmPorMetro;
   const profundidadeMm = grade.alturaM * mmPorMetro;
 

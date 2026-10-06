@@ -64,6 +64,7 @@ export async function amostrarElevacao(
   r: Retangulo,
   amostrasLadoMaior: number,
   carregar: CarregarTile,
+  aoProgredir?: (feitos: number, total: number) => void,
 ): Promise<GradeElevacao> {
   const { largura, altura } = dimensoesMetros(r);
   const espacamento = Math.max(largura, altura) / (amostrasLadoMaior - 1);
@@ -76,6 +77,8 @@ export async function amostrarElevacao(
   const t = tilesNecessarios(r, z);
   const tiles = new Map<string, Float32Array>();
   const tarefas: Promise<void>[] = [];
+  const total = (t.tx1 - t.tx0 + 1) * (t.ty1 - t.ty0 + 1);
+  let feitos = 0;
   for (let ty = t.ty0; ty <= t.ty1; ty++) {
     for (let tx = t.tx0; tx <= t.tx1; tx++) {
       const txReal = ((tx % n) + n) % n;
@@ -86,6 +89,7 @@ export async function amostrarElevacao(
             valores[k] = decodificarTerrarium(img.data[k * 4], img.data[k * 4 + 1], img.data[k * 4 + 2]);
           }
           tiles.set(`${tx},${ty}`, valores);
+          aoProgredir?.(++feitos, total);
         }),
       );
     }

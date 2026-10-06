@@ -25,30 +25,26 @@
 
         <section>
           <h2>2. Área</h2>
-          <div class="linha">
-            <button id="btn-desenhar" type="button">Desenhar retângulo</button>
-            <button id="btn-visivel" type="button" class="secundario">Usar área visível</button>
-          </div>
-          <p class="dica" id="dica-desenho">Clique em "Desenhar retângulo" e arraste no mapa.</p>
+          <p class="dica" id="dica-area">Escolha uma forma na barra sobre o mapa e desenhe a área.</p>
           <div id="info-area" class="info" hidden></div>
         </section>
 
         <section>
           <h2>3. Modelo</h2>
           <label>Tamanho do lado maior (mm)
-            <input id="p-tamanho" type="number" min="20" max="400" step="5" value="150" />
+            <input data-param="tamanhoMm" type="number" step="5" />
           </label>
-          <label>Exagero vertical do relevo: <strong id="v-exagero">1.5x</strong>
-            <input id="p-exagero" type="range" min="1" max="5" step="0.1" value="1.5" />
+          <label>Exagero vertical do relevo: <strong data-valor="exagero" data-sufixo="x" data-casas="1"></strong>
+            <input data-param="exagero" type="range" step="0.1" />
           </label>
           <label>Espessura da base (mm)
-            <input id="p-base" type="number" min="0.6" max="30" step="0.2" value="3" />
+            <input data-param="baseMm" type="number" step="0.2" />
           </label>
-          <label>Detalhe (pontos no lado maior): <strong id="v-resolucao">300</strong>
-            <input id="p-resolucao" type="range" min="50" max="600" step="10" value="300" />
+          <label>Detalhe (pontos no lado maior): <strong data-valor="resolucao"></strong>
+            <input data-param="resolucao" type="range" step="10" />
           </label>
           <label class="check">
-            <input id="p-mar" type="checkbox" checked /> Mar plano (ignora o fundo do oceano)
+            <input data-param="achatarMar" type="checkbox" /> Mar plano (ignora o fundo do oceano)
           </label>
         </section>
 
@@ -57,6 +53,7 @@
             <button id="btn-gerar" type="button" class="principal" disabled>Gerar modelo 3D</button>
             <button id="btn-stl" type="button" disabled>Baixar STL</button>
           </div>
+          <div id="progresso" hidden><div id="progresso-barra"></div></div>
           <div id="status" class="info" hidden></div>
         </section>
 
@@ -69,7 +66,27 @@
       </aside>
 
       <main>
-        <div id="mapa"></div>
+        <div id="mapa-area">
+          <div id="mapa"></div>
+          <div id="ferramentas" role="toolbar" aria-label="Ferramentas de seleção">
+            <button type="button" data-ferramenta="retangulo" title="Retângulo: arraste no mapa">
+              <svg viewBox="0 0 20 20"><rect x="3" y="5" width="14" height="10" /></svg>Retângulo
+            </button>
+            <button type="button" data-ferramenta="circulo" title="Círculo: arraste do centro para fora">
+              <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" /></svg>Círculo
+            </button>
+            <button type="button" data-ferramenta="hexagono" title="Hexágono: arraste do centro para fora">
+              <svg viewBox="0 0 20 20"><polygon points="17,10 13.5,16.1 6.5,16.1 3,10 6.5,3.9 13.5,3.9" /></svg>Hexágono
+            </button>
+            <button type="button" data-ferramenta="poligono" title="Polígono: clique ponto a ponto">
+              <svg viewBox="0 0 20 20"><polygon points="3,15 6,4 13,7 17,3 16,16" /></svg>Polígono
+            </button>
+            <span class="separador"></span>
+            <button type="button" id="btn-cancelar" hidden>Cancelar</button>
+            <button type="button" id="btn-gerar-mapa" class="principal" disabled>Gerar modelo 3D</button>
+          </div>
+          <div id="dica-ferramenta" hidden></div>
+        </div>
         <div id="previa">
           <div id="previa-vazia">A pré-visualização 3D aparece aqui depois de gerar o modelo.</div>
           <div id="previa-medidas" hidden></div>
