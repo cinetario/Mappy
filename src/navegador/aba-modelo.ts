@@ -17,7 +17,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
   const comTexto = (c: Contexto) => c.params.moldura && !!c.params.texto.trim();
 
   const secoes: Controle[] = [
-    secao('dimensoes', 'Dimensões e coordenadas', [
+    secao('dimensoes', 'Dimensões e coordenadas', 'dimensoes', [
       opcoes('modo', 'Modo', [['impressao', 'Impressão 3D (escalado)'], ['real', 'Escala 1:1 (mundo real)']], aoMudar),
       informacao(() =>
         'Gera o modelo em <strong>metros reais</strong> (1 unidade = 1 m), centrado no meio da área. '
@@ -56,7 +56,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
       }),
     ], (c) => (impressao(c) ? `${inteiro(c.params.tamanhoMm)} mm` : 'Escala 1:1')),
 
-    secao('terreno', 'Detalhes do terreno', [
+    secao('terreno', 'Detalhes do terreno', 'terreno', [
       numero('exagero', 'Exagero de elevação', aoMudar, {
         deslizante: true, passo: 0.1,
         exibir: (c) => (impressao(c) && c.params.travarAltura
@@ -99,7 +99,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
       booleano('achatarMar', 'Mar plano (ignora o fundo do oceano)', aoMudar),
     ], (c) => `${c.params.travarAltura && impressao(c) ? 'auto' : `${decimal(c.params.exagero, 1)}x`} · ${FONTES[c.params.fonte].nome.split(' ')[0]}`),
 
-    secao('estilo', 'Estilo do terreno', [
+    secao('estilo', 'Estilo do terreno', 'estilo', [
       opcoes('estilo', '', [['solido', 'Cor sólida'], ['faixas', 'Faixas por altitude']], aoMudar),
       cor('corTerreno', 'Cor do terreno', aoMudar, { visivel: (c) => c.params.estilo === 'solido' }),
       editorFaixas(aoMudar, {
@@ -112,7 +112,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
       }),
     ], (c) => (c.params.estilo === 'solido' ? 'Cor sólida' : `${lerFaixas(c.params.faixas)?.length ?? 0} faixas`)),
 
-    secao('base', 'Base', [
+    secao('base', 'Base', 'base', [
       numero('baseMm', 'Altura da base abaixo do ponto mais baixo', aoMudar, {
         unidade: 'mm', passo: 0.2,
         dica: (c) => {
@@ -124,12 +124,12 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
       }),
     ], (c) => `${decimal(c.params.baseMm, 1)} ${unidadeModelo(c)}`),
 
-    secao('laterais', 'Laterais', [
+    secao('laterais', 'Laterais', 'laterais', [
       cor('corLaterais', 'Cor da base (e das laterais da base)', aoMudar),
       informacao(() => 'A base é uma peça separada; no 3MF ela pode receber outro filamento. Acima da base, as laterais têm a cor do terreno ou da faixa.'),
     ]),
 
-    secao('moldura', 'Moldura e texto', [
+    secao('moldura', 'Moldura e texto', 'moldura', [
       booleano('moldura', 'Moldura em volta do modelo', aoMudar),
       opcoes('molduraEstilo', 'Cantos', [['reta', 'Retos'], ['arredondada', 'Arredondados']], aoMudar, { visivel: (c) => c.params.moldura }),
       cor('molduraCor', 'Cor da moldura', aoMudar, { visivel: (c) => c.params.moldura && !c.params.molduraFundir }),
@@ -155,7 +155,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
       cor('textoCor', 'Cor do texto', aoMudar, { visivel: comTexto }),
     ], (c) => (c.params.moldura ? (c.params.texto.trim() ? 'Com texto' : 'Ligada') : 'Desligada')),
 
-    secao('impressao', 'Camadas de impressão', [
+    secao('impressao', 'Camadas de impressão', 'impressao', [
       numero('alturaCamadaMm', 'Altura de camada', aoMudar, { unidade: 'mm', passo: 0.02 }),
       numero('primeiraCamadaMm', 'Altura da primeira camada', aoMudar, {
         unidade: 'mm', passo: 0.02,
@@ -163,7 +163,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
       }),
     ], (c) => `${decimal(c.params.alturaCamadaMm, 2)} mm`),
 
-    secao('estatisticas', 'Estatísticas', [
+    secao('estatisticas', 'Estatísticas', 'estatisticas', [
       informacao((c) => {
         if (!c.info || !c.partes) return 'Gere o modelo para ver as estatísticas.';
         const tri = c.partes.reduce((s, p) => s + p.indices.length / 3, 0);

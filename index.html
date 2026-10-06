@@ -4,73 +4,38 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Relevo3D</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26 L11 10 L17 19 L21 13 L30 26 Z' fill='%232f6f4f'/%3E%3C/svg%3E" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231d6b56'/%3E%3Cpath d='M5 24 13 11l4 6 3-4 7 11z' fill='%23f3efe4'/%3E%3Cpath d='M5 27h22' stroke='%23d9824f' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E" />
   </head>
   <body>
     <div id="app">
-      <aside id="painel">
-        <div id="painel-rolagem">
-          <header>
+      <header id="topo">
+        <div class="marca">
+          <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+            <rect width="32" height="32" rx="8" fill="currentColor" />
+            <path d="M5 24 13 11l4 6 3-4 7 11z" fill="#f3efe4" />
+            <path d="M5 27h22" stroke="#d9824f" stroke-width="2.5" stroke-linecap="round" />
+          </svg>
+          <div>
             <h1>Relevo3D</h1>
-            <p class="sub">Mapas 3D para impressão</p>
-          </header>
-
-          <div id="presets" role="group" aria-label="Presets">
-            <button type="button" data-preset="soTerreno">Só terreno</button>
-            <button type="button" data-preset="topografico">Topográfico</button>
-            <button type="button" data-preset="impressao3d">Impressão 3D</button>
-            <button type="button" id="btn-redefinir" class="secundario" title="Volta todos os parâmetros ao padrão (mantém a área)">Redefinir</button>
+            <p class="sub">Mapas em relevo para imprimir</p>
           </div>
-
-          <section>
-            <h2>Local</h2>
-            <form id="form-busca" class="linha">
-              <input id="busca" type="search" placeholder="Endereço, cidade, montanha…" autocomplete="off" />
-              <button type="submit">Buscar</button>
-            </form>
-            <ul id="resultados"></ul>
-          </section>
-
-          <section>
-            <h2>Área</h2>
-            <p class="dica" id="dica-area">Escolha uma forma na barra sobre o mapa e desenhe a área.</p>
-            <div id="info-area" class="info" hidden></div>
-          </section>
-
-          <div id="abas" role="tablist">
-            <button type="button" role="tab" data-aba="modelo" aria-selected="true">Modelo</button>
-            <button type="button" role="tab" data-aba="camadas" aria-selected="false">Camadas</button>
-          </div>
-          <div id="aba-modelo" role="tabpanel"></div>
-          <div id="aba-camadas" role="tabpanel" hidden></div>
-
-          <footer id="creditos"></footer>
         </div>
 
-        <div id="acoes">
-          <div id="cores" class="info"></div>
-          <div class="linha">
-            <button id="btn-gerar" type="button" class="principal" disabled>Gerar modelo 3D</button>
-          </div>
-          <div id="exportar" hidden>
-            <div class="linha">
-              <button id="btn-3mf" type="button" title="Cada camada é um objeto separado, com nome, cor e filamento para o Snapmaker Orca">Baixar 3MF (multicolor)</button>
-            </div>
-            <div class="linha">
-              <button id="btn-stl" type="button" class="secundario" title="Todas as peças juntas num sólido só">STL único</button>
-              <button id="btn-stl-pecas" type="button" class="secundario" title="Um STL por camada, num arquivo .zip">STL por peça (.zip)</button>
-            </div>
-            <div id="filamentos" class="info"></div>
-          </div>
-          <div id="linha-progresso" hidden>
-            <div id="progresso"><div id="progresso-barra"></div></div>
-            <button id="btn-cancelar-geracao" type="button" class="secundario pequeno">Cancelar</button>
-          </div>
-          <div id="status" class="info" hidden></div>
-        </div>
-      </aside>
+        <form id="form-busca" role="search">
+          <span class="lupa" data-icone="busca"></span>
+          <input id="busca" type="search" placeholder="Buscar endereço, cidade, montanha…" autocomplete="off" aria-label="Buscar lugar" />
+          <button type="submit" class="secundario">Buscar</button>
+          <ul id="resultados"></ul>
+        </form>
 
-      <main>
+        <div id="vistas" class="segmentado" role="radiogroup" aria-label="O que mostrar">
+          <button type="button" role="radio" data-vista="mapa" data-icone="mapa">Mapa</button>
+          <button type="button" role="radio" data-vista="lado" data-icone="lado">Lado a lado</button>
+          <button type="button" role="radio" data-vista="3d" data-icone="cubo">3D</button>
+        </div>
+      </header>
+
+      <main id="palco" data-vista="lado">
         <div id="mapa-area">
           <div id="mapa"></div>
           <div id="ferramentas" role="toolbar" aria-label="Ferramentas de seleção">
@@ -91,13 +56,73 @@
             <button type="button" id="btn-gerar-mapa" class="principal" disabled>Gerar modelo 3D</button>
           </div>
           <div id="dica-ferramenta" hidden></div>
+          <div id="info-area" class="cartao-flutuante" hidden></div>
         </div>
+
         <div id="previa">
-          <div id="previa-vazia">A pré-visualização 3D aparece aqui depois de gerar o modelo.</div>
-          <button type="button" id="btn-aramado" class="flutuante" hidden aria-pressed="false" title="Mostrar as arestas dos triângulos">Wireframe</button>
-          <div id="caixa-info" hidden></div>
+          <div id="previa-vazia">
+            <div>
+              <span class="grande" data-icone="cubo"></span>
+              <p>Desenhe uma área no mapa e clique em <strong>Gerar modelo 3D</strong>.<br />O modelo aparece aqui.</p>
+            </div>
+          </div>
+          <div id="botoes-3d" role="toolbar" aria-label="Visualização 3D" hidden>
+            <button type="button" id="btn-enquadrar" class="redondo" data-icone="enquadrar" title="Enquadrar o modelo" aria-label="Enquadrar o modelo"></button>
+            <button type="button" id="btn-topo" class="redondo" data-icone="topo" title="Ver de cima" aria-label="Ver de cima"></button>
+            <button type="button" id="btn-aramado" class="redondo" data-icone="aramado" aria-pressed="false" title="Mostrar os triângulos da malha" aria-label="Mostrar os triângulos da malha"></button>
+            <button type="button" id="btn-grade" class="redondo" data-icone="grade" aria-pressed="true" title="Grade do chão" aria-label="Grade do chão"></button>
+          </div>
+          <div id="caixa-info" class="cartao-flutuante" hidden></div>
         </div>
       </main>
+
+      <aside id="painel">
+        <div id="painel-rolagem">
+          <section id="sec-presets">
+            <div class="titulo-secao">
+              <h2>Pontos de partida</h2>
+              <button type="button" id="btn-redefinir" class="link" data-icone="redefinir" title="Volta todos os parâmetros ao padrão (mantém a área)">Redefinir</button>
+            </div>
+            <div id="presets" role="group" aria-label="Pontos de partida">
+              <button type="button" class="cartao" data-preset="soTerreno"><span data-icone="terreno"></span>Só terreno</button>
+              <button type="button" class="cartao" data-preset="topografico"><span data-icone="topografico"></span>Topográfico</button>
+              <button type="button" class="cartao" data-preset="impressao3d"><span data-icone="impressao"></span>Impressão 3D</button>
+            </div>
+          </section>
+
+          <p class="dica" id="dica-area">Escolha uma forma na barra sobre o mapa e desenhe a área.</p>
+
+          <div id="abas" role="tablist">
+            <button type="button" role="tab" data-aba="modelo" aria-selected="true">Modelo</button>
+            <button type="button" role="tab" data-aba="camadas" aria-selected="false">Camadas</button>
+          </div>
+          <div id="aba-modelo" role="tabpanel"></div>
+          <div id="aba-camadas" role="tabpanel" hidden></div>
+
+          <footer id="creditos"></footer>
+        </div>
+
+        <div id="acoes">
+          <div id="cores"></div>
+          <button id="btn-gerar" type="button" class="principal largo" disabled>Gerar modelo 3D</button>
+          <div id="linha-progresso" hidden>
+            <div id="progresso"><div id="progresso-barra"></div></div>
+            <button id="btn-cancelar-geracao" type="button" class="secundario pequeno">Cancelar</button>
+          </div>
+          <div id="status" class="info" hidden></div>
+          <div id="exportar" hidden>
+            <button id="btn-3mf" type="button" class="largo" data-icone="baixar" title="Cada camada é um objeto separado, com nome, cor e filamento para o Snapmaker Orca">Baixar 3MF multicolor</button>
+            <div class="linha">
+              <button id="btn-stl" type="button" class="secundario" title="Todas as peças juntas num sólido só">STL único</button>
+              <button id="btn-stl-pecas" type="button" class="secundario" title="Um STL por camada, num arquivo .zip">STL por peça (.zip)</button>
+            </div>
+            <details id="det-filamentos">
+              <summary>Filamentos no 3MF</summary>
+              <div id="filamentos"></div>
+            </details>
+          </div>
+        </div>
+      </aside>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

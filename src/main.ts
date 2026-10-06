@@ -1,3 +1,4 @@
+import '@fontsource-variable/manrope';
 import './estilo.css';
 import { FONTES } from './core/elevacao.ts';
 import {
@@ -19,6 +20,7 @@ import { GeracaoCancelada, criarGerador } from './navegador/gerador.ts';
 import { obterInfoIndiceLocal, type InfoIndiceLocal } from './navegador/osm-cliente.ts';
 import { criarMapa, enquadrar, mostrarFaltando } from './navegador/mapa.ts';
 import type { Contexto } from './navegador/painel.ts';
+import { preencherIcones } from './navegador/icones.ts';
 import { criarPrevia } from './navegador/previa.ts';
 import { area as fmtArea, decimal, distancia, inteiro, medidaModelo, type Sistema } from './navegador/unidades.ts';
 import type { Contagem, ParteGerada, ResultadoGeracao } from './trabalhador/protocolo.ts';
@@ -306,7 +308,7 @@ function atualizarCores() {
   const excesso = cores.length > FILAMENTOS;
   $('cores').innerHTML = `Cores: <strong class="${excesso ? 'erro' : ''}">${cores.length}/${FILAMENTOS}</strong> ${amostras}`
     + (excesso
-      ? `<div class="aviso">A Snapmaker U1 tem ${FILAMENTOS} filamentos. Use a mesma cor em mais de uma peça (ex.: base igual à primeira faixa, ruas iguais aos prédios) ou reduza faixas e camadas. No 3MF, as cores a mais vão para o filamento de cor mais parecida.</div>`
+      ? `<div class="aviso" title="Use a mesma cor em mais de uma peça (ex.: base igual à primeira faixa, ruas iguais aos prédios) ou reduza faixas e camadas.">Mais cores que filamentos: no 3MF, as que sobram vão para a cor mais parecida.</div>`
       : '');
 }
 
@@ -318,8 +320,13 @@ function atualizarCreditos() {
 }
 
 // ---------- geração ----------
-botao('btn-gerar').addEventListener('click', () => gerar());
-botao('btn-gerar-mapa').addEventListener('click', () => gerar());
+// gerar pelo botão: se só o mapa está à vista, mostra o 3D também
+const gerarPeloBotao = () => {
+  if (vistaAtual === 'mapa') mostrarVista('lado');
+  void gerar();
+};
+botao('btn-gerar').addEventListener('click', gerarPeloBotao);
+botao('btn-gerar-mapa').addEventListener('click', gerarPeloBotao);
 
 let espera: number | undefined;
 function agendarGeracao(ms: number) {
@@ -361,7 +368,7 @@ async function gerar(confirmado = false) {
     mostrarPrevia(chave !== chaveEnquadrada);
     chaveEnquadrada = chave;
     $('previa-vazia').hidden = true;
-    botao('btn-aramado').hidden = false;
+    $('botoes-3d').hidden = false;
     mostrarCaixaInfo();
 
     const ruins = r.partes.filter((p) => !p.verificacao.valida);
@@ -490,12 +497,41 @@ function status(html: string) {
 }
 
 // ---------- visualização ----------
-botao('btn-aramado').addEventListener('click', () => {
-  const b = botao('btn-aramado');
+const alternar = (id: string, aplicar: (ligado: boolean) => void) => botao(id).addEventListener('click', () => {
+  const b = botao(id);
   const ligado = b.getAttribute('aria-pressed') !== 'true';
   b.setAttribute('aria-pressed', String(ligado));
-  previa.definirAramado(ligado);
+  aplicar(ligado);
 });
+alternar('btn-aramado', (l) => previa.definirAramado(l));
+alternar('btn-grade', (l) => previa.definirGrade(l));
+botao('btn-enquadrar').addEventListener('click', () => previa.enquadrar());
+botao('btn-topo').addEventListener('click', () => previa.enquadrar(true));
+
+// Mapa, 3D ou os dois lado a lado (a escolha fica guardada neste navegador)
+type Vista = 'mapa' | 'lado' | '3d';
+let vistaAtual: Vista = 'lado';
+function mostrarVista(v: Vista) {
+  vistaAtual = v;
+  $('palco').dataset.vista = v;
+  for (const b of document.querySelectorAll<HTMLButtonElement>('#vistas [data-vista]')) {
+    const ativo = b.dataset.vista === v;
+    b.classList.toggle('ativo', ativo);
+    b.setAttribute('aria-checked', String(ativo));
+  }
+  mapa.resize();
+  // o 3D mudou de tamanho: enquadra de novo depois que o navegador refizer o layout
+  requestAnimationFrame(() => requestAnimationFrame(() => previa.enquadrar()));
+  try { localStorage.setItem('relevo3d-vista', v); } catch { /* sem armazenamento: tudo bem */ }
+}
+for (const b of document.querySelectorAll<HTMLButtonElement>('#vistas [data-vista]')) {
+  b.addEventListener('click', () => mostrarVista(b.dataset.vista as Vista));
+}
+{
+  let guardada: string | null = null;
+  try { guardada = localStorage.getItem('relevo3d-vista'); } catch { /* idem */ }
+  mostrarVista(guardada === 'mapa' || guardada === '3d' ? guardada : 'lado');
+}
 
 // ---------- exportação ----------
 /** Filamento (1–4) de cada cor, decidido pelo modelo inteiro (todos os blocos usam o mesmo). */
@@ -518,7 +554,7 @@ function mostrarFilamentos() {
     return `<tr><td>Filamento ${x.extrusora} <span class="amostra" style="background:${x.cor}"></span></td>
       <td>${pecas.map((p) => p.nome).join(', ')}${outras.length ? ` · <span class="suave">no lugar de ${outras.map((c) => `<span class="amostra" style="background:${c}"></span>`).join('')}</span>` : ''}</td></tr>`;
   }).join('');
-  el.innerHTML = `<strong>No 3MF:</strong><table>${linhas}</table>`
+  el.innerHTML = `<table>${linhas}</table>`
     + (f.agrupadas
       ? `<div class="aviso">Há mais de ${FILAMENTOS} cores: as que sobram foram juntadas ao filamento de cor mais parecida (dá para trocar no Snapmaker Orca).</div>`
       : '');
@@ -604,6 +640,7 @@ function baixar(blob: Blob, nome: string) {
 }
 
 // ---------- início ----------
+preencherIcones();
 atualizarPainel();
 void atualizarOsmLocal();
 atualizarArea();

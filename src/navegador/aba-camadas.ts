@@ -54,6 +54,7 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
     aoLigar: (v) => aoMudar('predios', v ? 'sim' : 'nao'),
     contagem: (c) => (c.info?.contagem.predios != null ? inteiro(c.info.contagem.predios) : ''),
     aoOcultar: (o) => a.aoOcultar('predios', o),
+    icone: 'predios', cor: (c) => c.params.prediosCor,
   }, [
     informacao(avisoGrande('predios'), { visivel: (c) => !!avisoGrande('predios')(c) }),
     voltarAuto('predios'),
@@ -91,6 +92,7 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
     aoLigar: (v) => aoMudar('ruas', v ? 'sim' : 'nao'),
     contagem: (c) => (c.info?.contagem.vias != null ? inteiro(c.info.contagem.vias) : ''),
     aoOcultar: (o) => a.aoOcultar('ruas', o),
+    icone: 'ruas', cor: (c) => c.params.ruasCor,
   }, [
     informacao(avisoGrande('ruas'), { visivel: (c) => !!avisoGrande('ruas')(c) }),
     voltarAuto('ruas'),
@@ -131,6 +133,7 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
     aoLigar: (v) => aoMudar('agua', v),
     contagem: (c) => (c.info?.contagem.agua != null ? inteiro(c.info.contagem.agua) : ''),
     aoOcultar: (o) => a.aoOcultar('agua', o),
+    icone: 'agua', cor: (c) => c.params.aguaCor,
   }, [
     opcoes('aguaModo', 'Modo', [['superficie', 'Superfície (pintada)'], ['extrudada', 'Extrudada']], aoMudar),
     opcoes('aguaIntegracao', 'Integração', [['elevada', 'Elevada'], ['rebaixada', 'Rebaixada (sulco)']], aoMudar, {
@@ -185,6 +188,7 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
     aoLigar: (v) => aoMudar('cobertura', v),
     contagem: (c) => (c.info?.contagem.cobertura != null ? inteiro(c.info.contagem.cobertura) : ''),
     aoOcultar: (o) => a.aoOcultar('cobertura', o),
+    icone: 'cobertura', cor: () => '#6f9a45',
   }, [
     informacao(() => 'Florestas, gramados, lavouras, áreas úmidas, areia, gelo, rocha e áreas urbanas (landuse/natural do OSM). Cada categoria vira uma peça com a própria cor.'),
     opcoes('coberturaModo', 'Modo', [['superficie', 'Superfície (pintada)'], ['extrudada', 'Extrudada']], aoMudar),
@@ -214,6 +218,7 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
     aoLigar: (v) => aoMudar('arvores', v),
     contagem: (c) => (c.info?.estatisticasCamadas?.arvores ? inteiro(c.info.estatisticasCamadas.arvores.quantidade) : ''),
     aoOcultar: (o) => a.aoOcultar('arvores', o),
+    icone: 'arvores', cor: (c) => c.params.arvoresCor,
   }, [
     booleano('arvoresOsm', 'Árvores mapeadas no OSM (natural=tree)', aoMudar),
     booleano('arvoresFlorestas', 'Preencher áreas de floresta com árvores geradas', aoMudar),
@@ -255,6 +260,7 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
     aoLigar: (v) => aoMudar('curvas', v),
     contagem: (c) => (c.info?.estatisticasCamadas?.curvas ? inteiro(c.info.estatisticasCamadas.curvas.linhas) : ''),
     aoOcultar: (o) => a.aoOcultar('curvas', o),
+    icone: 'curvas', cor: (c) => c.params.curvasCor,
   }, [
     informacao((c) => {
       const i = c.info?.curvas;

@@ -34,6 +34,24 @@ export function criarPrevia(container: HTMLElement) {
   const ocultas = new Set<string>();
   const visivel = (id: string) => ![...ocultas].some((o) => id === o || id.startsWith(`${o}-`));
 
+  let comGrade = true;
+  let ultimaCaixa: THREE.Box3 | null = null;
+  const DE_FRENTE = new THREE.Vector3(0, -1, 0.85).normalize();
+  // um tiquinho inclinado: olhar exatamente na vertical confunde os controles de órbita
+  const DE_CIMA = new THREE.Vector3(0, -0.001, 1).normalize();
+  const apontar = (direcao: THREE.Vector3) => {
+    if (!ultimaCaixa || ultimaCaixa.isEmpty()) return;
+    const esfera = ultimaCaixa.getBoundingSphere(new THREE.Sphere());
+    const meioFovV = THREE.MathUtils.degToRad(camera.fov / 2);
+    const meioFov = Math.min(meioFovV, Math.atan(Math.tan(meioFovV) * camera.aspect));
+    const distancia = (esfera.radius / Math.sin(meioFov)) * 1.05;
+    controles.target.copy(esfera.center);
+    camera.position.copy(esfera.center).addScaledVector(direcao, distancia);
+    camera.near = distancia / 100;
+    camera.far = distancia * 10;
+    camera.updateProjectionMatrix();
+  };
+
   const redimensionar = () => {
     const { clientWidth: w, clientHeight: h } = container;
     if (w === 0 || h === 0) return;
@@ -130,20 +148,18 @@ export function criarPrevia(container: HTMLElement) {
       grade.position.z = -lado * 0.001;
       cena.add(grade);
 
-      if (enquadrar) {
-        // enquadra o modelo inteiro, visto de frente e de cima
-        const esfera = caixa.getBoundingSphere(new THREE.Sphere());
-        const meioFovV = THREE.MathUtils.degToRad(camera.fov / 2);
-        const meioFov = Math.min(meioFovV, Math.atan(Math.tan(meioFovV) * camera.aspect));
-        const distancia = (esfera.radius / Math.sin(meioFov)) * 1.05;
-        const direcao = new THREE.Vector3(0, -1, 0.85).normalize();
-        controles.target.copy(esfera.center);
-        camera.position.copy(esfera.center).addScaledVector(direcao, distancia);
-        camera.near = distancia / 100;
-        camera.far = distancia * 10;
-        camera.updateProjectionMatrix();
-      }
+      grade.visible = comGrade;
+      ultimaCaixa = caixa;
+      if (enquadrar) apontar(DE_FRENTE);
       return quadrado;
+    },
+    /** volta a câmera para ver o modelo inteiro (de frente e de cima, ou só de cima) */
+    enquadrar(deCima = false) {
+      apontar(deCima ? DE_CIMA : DE_FRENTE);
+    },
+    definirGrade(ligada: boolean) {
+      comGrade = ligada;
+      if (grade) grade.visible = ligada;
     },
     definirAramado(ligado: boolean) {
       aramado = ligado;

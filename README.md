@@ -87,8 +87,16 @@ PowerShell e aperte `Ctrl + C`.
 
 ## 3. Como usar
 
-1. **Local**: digite um endereço, cidade ou montanha e clique em *Buscar*. Clique num
-   resultado para o mapa ir até lá.
+A tela tem três partes:
+- **Barra de cima**: busca de lugares e os botões **Mapa**, **Lado a lado** e
+  **3D**, que escolhem o que aparece no meio da tela. A escolha fica guardada
+  no navegador.
+- **Meio**: o mapa (para escolher a área) e/ou a visualização 3D.
+- **Painel da direita**: pontos de partida, abas *Modelo* e *Camadas* e, no
+  rodapé, cores, botão de gerar, status e downloads.
+
+1. **Local**: digite um endereço, cidade ou montanha na busca da barra de cima
+   e aperte Enter. Clique num resultado para o mapa ir até lá.
 2. **Área**: escolha uma forma na barra sobre o mapa. A base do modelo sai
    no mesmo formato.
    - **Retângulo**: clique e arraste.
@@ -104,9 +112,9 @@ PowerShell e aperte `Ctrl + C`.
    - no polígono, arrastar a bolinha do meio de um lado cria um vértice novo,
      e o botão direito sobre um vértice o apaga.
 
-   O painel mostra o tamanho real, a área (km²) e a escala do modelo.
+   Um cartão no canto do mapa mostra o tamanho real, a área (km²) e a escala do modelo.
    Se o modelo já foi gerado, ajustar a área atualiza a pré-visualização.
-3. **Presets** (botões no topo do painel): ponto de partida rápido.
+3. **Pontos de partida** (cartões no topo do painel): configuração rápida.
    - **Só terreno**: uma cor, exagero 1,5x.
    - **Topográfico**: faixas de cor por altitude, exagero 2x.
    - **Impressão 3D**: 220 mm, altura travada em 17 mm, base de 2 mm, camadas de 0,2 mm.
@@ -152,11 +160,14 @@ PowerShell e aperte `Ctrl + C`.
    - **Camadas de impressão**: altura de camada e da 1ª camada. Use os mesmos
      valores do perfil no Snapmaker Orca.
    - **Estatísticas**: triângulos, peças e tamanho estimado dos arquivos.
-5. Clique em **Gerar modelo 3D**. A pré-visualização aparece à direita
+5. Clique em **Gerar modelo 3D**. A visualização 3D aparece no meio da tela
    (arraste para girar, roda do mouse para zoom, botão direito para mover).
    - A caixa no canto mostra as dimensões finais, a escala (1:N), o exagero
      usado e o tamanho dos quadrados da grade do chão.
-   - O botão **Wireframe** mostra os triângulos da malha.
+   - Botões no canto da visualização: **enquadrar** o modelo, **ver de cima**,
+     **malha** (mostra os triângulos) e **grade** do chão.
+   - Na aba Camadas, cada camada tem um ícone com a cor dela, o **olho**
+     (esconde só na visualização) e o interruptor que liga ou desliga.
    - Depois de gerado, mudar os parâmetros atualiza a prévia na hora.
 6. A linha de status mostra **✓ Malha fechada e válida** quando todas as peças
    passaram na verificação. Escolha o arquivo:
@@ -394,6 +405,7 @@ mapas3d/
       mapa.ts           MapLibre e mapa de fundo
       desenho.ts        ferramentas de desenho e alças de edição
       painel.ts         controles do painel (número, cor, opções, faixas, seções)
+      icones.ts         ícones do app (desenho próprio, SVG)
       aba-modelo.ts     aba Modelo
       aba-camadas.ts    aba Camadas
       osm-cliente.ts    baixa os blocos do OSM pelo servidor local

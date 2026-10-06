@@ -3,6 +3,7 @@
 // quando o estado muda (preset, URL colada, "Redefinir"…).
 import { PARAMETROS, escreverFaixas, lerFaixas, MAX_FAIXAS, type NomeParametro, type Parametros, type Valor } from '../core/estado.ts';
 import type { InfoModelo, ParteGerada } from '../trabalhador/protocolo.ts';
+import { elementoIcone, type NomeIcone } from './icones.ts';
 import type { InfoIndiceLocal } from './osm-cliente.ts';
 
 export interface Contexto {
@@ -247,13 +248,22 @@ export interface OpcoesCamada {
   aoLigar: (ligar: boolean) => void;
   contagem?: (c: Contexto) => string;
   aoOcultar: (oculta: boolean) => void;
+  icone: NomeIcone;
+  /** cor da camada (pinta o ícone) */
+  cor: (c: Contexto) => string;
+}
+
+/** Quadradinho colorido com o ícone da seção/camada. */
+function chip(icone: NomeIcone) {
+  return h('span', { class: 'chip', 'aria-hidden': 'true' }, elementoIcone(icone));
 }
 
 export function camada(o: OpcoesCamada, controles: Controle[]): Controle {
   const entrada = h('input', { type: 'checkbox', role: 'switch', 'aria-label': `Ligar ${o.titulo}` }) as HTMLInputElement;
   const obs = h('span', { class: 'observacao' });
   const contagem = h('span', { class: 'contagem' });
-  const olho = h('button', { type: 'button', class: 'olho', 'aria-pressed': 'false', title: 'Ocultar só na visualização (continua no arquivo)' }, '👁');
+  const olho = h('button', { type: 'button', class: 'olho', 'aria-pressed': 'false', title: 'Ocultar só na visualização (continua no arquivo)', 'aria-label': `Ocultar ${o.titulo} na visualização` }, elementoIcone('olho'));
+  const marca = chip(o.icone);
   let oculta = false;
   entrada.addEventListener('change', () => o.aoLigar(entrada.checked));
   olho.addEventListener('click', (e) => {
@@ -265,7 +275,7 @@ export function camada(o: OpcoesCamada, controles: Controle[]): Controle {
   });
   const conteudo = h('div', { class: 'conteudo' }, ...controles.map((c) => c.el));
   const el = h('details', { class: 'secao camada', 'data-camada': o.id },
-    h('summary', {}, entrada, h('span', { class: 'titulo' }, o.titulo, obs), contagem, olho),
+    h('summary', {}, marca, h('span', { class: 'titulo' }, o.titulo, obs), contagem, olho, entrada),
     conteudo);
   el.addEventListener('toggle', () => {
     if (!(el as HTMLDetailsElement).open) return;
@@ -279,6 +289,7 @@ export function camada(o: OpcoesCamada, controles: Controle[]): Controle {
       const ligada = o.ligada(c);
       entrada.checked = ligada;
       el.classList.toggle('desligada', !ligada);
+      marca.style.setProperty('--cor', o.cor(c));
       obs.textContent = o.observacao?.(c) ?? '';
       contagem.textContent = o.contagem?.(c) ?? '';
       for (const ctl of controles) ctl.atualizar(c);
@@ -287,10 +298,10 @@ export function camada(o: OpcoesCamada, controles: Controle[]): Controle {
 }
 
 // ---------- seções recolhíveis (uma aberta por vez) ----------
-export function secao(id: string, titulo: string, controles: Controle[], resumo?: (c: Contexto) => string): Controle {
+export function secao(id: string, titulo: string, icone: NomeIcone, controles: Controle[], resumo?: (c: Contexto) => string): Controle {
   const res = h('span', { class: 'resumo' });
   const el = h('details', { class: 'secao', 'data-secao': id },
-    h('summary', {}, h('span', {}, titulo), res),
+    h('summary', {}, chip(icone), h('span', { class: 'titulo' }, titulo), res),
     h('div', { class: 'conteudo' }, ...controles.map((c) => c.el)));
   el.addEventListener('toggle', () => {
     if (!(el as HTMLDetailsElement).open) return;
