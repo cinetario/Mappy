@@ -1,31 +1,39 @@
 import './estilo.css';
+import { FONTES } from './core/elevacao.ts';
 import {
-  PARAMETROS, estadoParaUrl, urlParaEstado, validarParametro,
-  type Estado, type NomeParametro,
+  aplicarPreset, estadoParaUrl, lerFaixas, parametrosPadrao, urlParaEstado, validarParametro,
+  type Estado, type NomeParametro, type NomePreset, type Parametros, type Valor,
 } from './core/estado.ts';
 import { areaM2, caixaDaForma, dimensoesMetros, formatarCoordenadas, poligonoSeCruza, type Forma } from './core/geo.ts';
-import type { Malha } from './core/malha.ts';
-import { escreverStl } from './core/stl.ts';
-import { criarDesenho, type Ferramenta } from './navegador/desenho.ts';
-import { criarGerador } from './navegador/gerador.ts';
-import { criarMapa, enquadrar } from './navegador/mapa.ts';
-import { CORES_CAMADAS, criarPrevia } from './navegador/previa.ts';
-import type { ResultadoGeracao } from './trabalhador/protocolo.ts';
-
 import {
   AREA_GRANDE_KM2, AREA_LIVRE_KM2, AREA_MAXIMA_KM2, LARGURA_MINIMA_MM, LARGURA_RUA_LOCAL_M,
   classificarArea, ladoMaximoSemEngrossarM, larguraImpressa,
 } from './core/limites.ts';
+import { escreverStl } from './core/stl.ts';
+import { montarAbaModelo } from './navegador/aba-modelo.ts';
+import { criarDesenho, type Ferramenta } from './navegador/desenho.ts';
+import { criarGerador } from './navegador/gerador.ts';
+import { criarMapa, enquadrar } from './navegador/mapa.ts';
+import type { Contexto } from './navegador/painel.ts';
+import { criarPrevia } from './navegador/previa.ts';
+import { area as fmtArea, decimal, distancia, inteiro, medidaModelo, type Sistema } from './navegador/unidades.ts';
+import type { ResultadoGeracao } from './trabalhador/protocolo.ts';
 
 const MESA_IMPRESSORA_MM = 270; // volume útil da Snapmaker U1
+const FILAMENTOS = 4; // Snapmaker U1
+/** parâmetros que só mudam a exibição (não precisam gerar de novo) */
+const SO_EXIBICAO = new Set<NomeParametro>(['unidades']);
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const botao = (id: string) => $<HTMLButtonElement>(id);
 
 // ---------- estado (vem da URL) ----------
 const estado: Estado = urlParaEstado(location.hash);
-let modelo: (ResultadoGeracao & Malha) | null = null;
+let resultado: ResultadoGeracao | null = null;
 let modeloDesatualizado = false;
+
+const sistema = () => estado.params.unidades as Sistema;
+const contexto = (): Contexto => ({ params: estado.params, info: resultado?.info ?? null, partes: resultado?.partes ?? null });
 
 const previa = criarPrevia($('previa'));
 const gerador = criarGerador();
@@ -36,7 +44,7 @@ const desenho = criarDesenho(mapa, {
     atualizarArea();
     if (final) {
       salvarNaUrl();
-      if (modelo) agendarGeracao(400);
+      if (resultado) agendarGeracao(400);
     }
   },
   aoMudarFerramenta: mostrarFerramenta,
@@ -47,6 +55,55 @@ if (estado.forma) {
   enquadrar(mapa, caixaDaForma(estado.forma), false);
 }
 
+// ---------- painel ----------
+const abaModelo = montarAbaModelo($('aba-modelo'), mudarParametro);
+
+function mudarParametro(nome: NomeParametro, bruto: Valor) {
+  const novo = validarParametro(nome, bruto);
+  if (novo === estado.params[nome]) {
+    atualizarPainel(); // devolve ao campo o valor efetivo (ex.: limitado à faixa)
+    return;
+  }
+  (estado.params as Record<NomeParametro, Valor>)[nome] = novo;
+  aposMudarParametros(SO_EXIBICAO.has(nome) ? [] : [nome]);
+}
+
+function aposMudarParametros(mudaramGeometria: NomeParametro[]) {
+  atualizarPainel();
+  atualizarArea();
+  salvarNaUrl();
+  if (resultado && mudaramGeometria.length) agendarGeracao(mudaramGeometria.includes('resolucao') ? 500 : 150);
+  if (resultado && !mudaramGeometria.length) mostrarCaixaInfo();
+}
+
+function atualizarPainel() {
+  abaModelo.atualizar(contexto());
+  atualizarCores();
+  atualizarCreditos();
+}
+
+for (const b of document.querySelectorAll<HTMLButtonElement>('#abas [data-aba]')) {
+  b.addEventListener('click', () => {
+    for (const outro of document.querySelectorAll<HTMLButtonElement>('#abas [data-aba]')) {
+      const ativo = outro === b;
+      outro.setAttribute('aria-selected', String(ativo));
+      $(`aba-${outro.dataset.aba}`).hidden = !ativo;
+    }
+  });
+}
+
+// ---------- presets ----------
+for (const b of document.querySelectorAll<HTMLButtonElement>('[data-preset]')) {
+  b.addEventListener('click', () => trocarParametros(aplicarPreset(estado.params, b.dataset.preset as NomePreset)));
+}
+botao('btn-redefinir').addEventListener('click', () => trocarParametros(parametrosPadrao()));
+
+function trocarParametros(novos: Parametros) {
+  const mudaram = (Object.keys(novos) as NomeParametro[]).filter((k) => novos[k] !== estado.params[k]);
+  estado.params = novos;
+  aposMudarParametros(mudaram.filter((k) => !SO_EXIBICAO.has(k)));
+}
+
 // ---------- URL ----------
 function salvarNaUrl() {
   const hash = estadoParaUrl(estado);
@@ -55,9 +112,9 @@ function salvarNaUrl() {
 window.addEventListener('hashchange', () => {
   // o usuário colou outro link na mesma aba
   Object.assign(estado, urlParaEstado(location.hash));
-  aplicarParametrosNaTela();
   desenho.definirForma(estado.forma);
   if (estado.forma) enquadrar(mapa, caixaDaForma(estado.forma));
+  atualizarPainel();
   atualizarArea();
   if (estado.forma) agendarGeracao(0);
 });
@@ -130,10 +187,12 @@ function atualizarArea() {
     info.hidden = true;
     return;
   }
+  const s = sistema();
   const { largura, altura } = dimensoesMetros(caixaDaForma(f));
   const km2 = areaM2(f) / 1e6;
   const tamanho = estado.params.tamanhoMm;
-  const escala = tamanho / Math.max(largura, altura); // mm por metro
+  const real = estado.params.modo === 'real';
+  const escala = tamanho / Math.max(largura, altura); // mm por metro (modo impressão)
   const avisos: string[] = [];
   const faixa = classificarArea(km2);
   if (km2 > AREA_MAXIMA_KM2) avisos.push('Área enorme: a projeção fica distorcida. Escolha uma região menor.');
@@ -143,98 +202,69 @@ function atualizarArea() {
     avisos.push(`Entre ${AREA_LIVRE_KM2} e ${AREA_GRANDE_KM2} km²: o download do OpenStreetMap fica lento, e prédios e ruas locais saem finos demais para imprimir. Sugestão: só vias principais (rodovias e avenidas), água e cobertura do solo.`);
   }
   if (km2 < 0.01) avisos.push('Área muito pequena: o relevo vai sair quase plano.');
-  if (tamanho > MESA_IMPRESSORA_MM) avisos.push(`O modelo passa de ${MESA_IMPRESSORA_MM} mm, o limite da mesa da Snapmaker U1.`);
+  if (!real && tamanho > MESA_IMPRESSORA_MM) avisos.push(`O modelo passa de ${MESA_IMPRESSORA_MM} mm, o limite da mesa da Snapmaker U1.`);
   if (f.tipo === 'poligono' && poligonoSeCruza(f.pontos)) {
     avisos.push('O polígono cruza a si mesmo. Arraste os vértices para desfazer o cruzamento.');
   }
 
   // largura impressa de uma rua local, para ver na hora se é imprimível
-  const rua = larguraImpressa(LARGURA_RUA_LOCAL_M, escala);
-  const fmtMm = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: v < 1 ? 2 : 1 });
-  const linhaRua = rua.engrossada
-    ? `<div class="aviso-leve">Rua local (${LARGURA_RUA_LOCAL_M} m) sairia com <strong>${fmtMm(rua.realMm)} mm</strong>,
-       abaixo do mínimo de ${fmtMm(LARGURA_MINIMA_MM)} mm. Será engrossada para ${fmtMm(LARGURA_MINIMA_MM)} mm
-       (≈ ${Math.round(rua.impressaEmMetros)} m reais). Na largura real, só com lado maior até
-       ${formatarKm(ladoMaximoSemEngrossarM(LARGURA_RUA_LOCAL_M, tamanho))}.</div>`
-    : `<div><span class="ok">✓</span> Rua local (${LARGURA_RUA_LOCAL_M} m): <strong>${fmtMm(rua.realMm)} mm</strong> impressa, imprimível.</div>`;
+  let linhaRua = '';
+  if (!real) {
+    const rua = larguraImpressa(LARGURA_RUA_LOCAL_M, escala);
+    linhaRua = rua.engrossada
+      ? `<div class="aviso-leve">Rua local (${LARGURA_RUA_LOCAL_M} m) sairia com <strong>${medidaModelo(rua.realMm, s, 2)}</strong>,
+         abaixo do mínimo de ${medidaModelo(LARGURA_MINIMA_MM, s, 1)}. Será engrossada para ${medidaModelo(LARGURA_MINIMA_MM, s, 1)}
+         (≈ ${distancia(rua.impressaEmMetros, s)} reais). Na largura real, só com lado maior até
+         ${distancia(ladoMaximoSemEngrossarM(LARGURA_RUA_LOCAL_M, tamanho), s)}.</div>`
+      : `<div><span class="ok">✓</span> Rua local (${LARGURA_RUA_LOCAL_M} m): <strong>${medidaModelo(rua.realMm, s, 2)}</strong> impressa, imprimível.</div>`;
+  }
 
   info.innerHTML = `
-    <div><strong>${descreverForma(f, largura, altura)}</strong> · ${km2 < 10 ? km2.toFixed(2) : Math.round(km2).toLocaleString('pt-BR')} km²</div>
-    <div>Modelo: ${(largura * escala).toFixed(0)} × ${(altura * escala).toFixed(0)} mm · 1 mm = ${(1 / escala).toFixed(1)} m</div>
+    <div><strong>${descreverForma(f, largura, altura, s)}</strong> · ${fmtArea(km2, s)}</div>
+    <div>${real
+      ? 'Modelo em escala 1:1 (metros reais)'
+      : `Modelo: ${medidaModelo(largura * escala, s, 0)} × ${medidaModelo(altura * escala, s, 0)} · 1 mm = ${distancia(1 / escala, s)}`}</div>
     ${linhaRua}
     <div class="dica">Centro: ${formatarCoordenadas(caixaDaForma(f))} · arraste as alças brancas para ajustar${f.tipo === 'poligono' ? ' (botão direito apaga um vértice)' : ''}</div>
     ${avisos.map((a) => `<div class="aviso">${a}</div>`).join('')}`;
   info.hidden = false;
 }
 
-function descreverForma(f: Forma, largura: number, altura: number) {
+function descreverForma(f: Forma, largura: number, altura: number, s: Sistema) {
   switch (f.tipo) {
     case 'retangulo':
-      return `Retângulo ${formatarKm(largura)} × ${formatarKm(altura)}`;
+      return `Retângulo ${distancia(largura, s)} × ${distancia(altura, s)}`;
     case 'circulo':
-      return `Círculo com ${formatarKm(f.raioM * 2)} de diâmetro`;
+      return `Círculo com ${distancia(f.raioM * 2, s)} de diâmetro`;
     case 'hexagono':
-      return `Hexágono com ${formatarKm(f.raioM * 2)} entre vértices opostos`;
+      return `Hexágono com ${distancia(f.raioM * 2, s)} entre vértices opostos`;
     case 'poligono':
-      return `Polígono de ${f.pontos.length} vértices, ${formatarKm(largura)} × ${formatarKm(altura)}`;
+      return `Polígono de ${f.pontos.length} vértices, ${distancia(largura, s)} × ${distancia(altura, s)}`;
   }
 }
 
-function formatarKm(m: number) {
-  return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+// ---------- cores (limite de filamentos) e créditos ----------
+function coresPrevistas(p: Parametros): string[] {
+  const terreno = p.estilo === 'faixas' ? (lerFaixas(p.faixas) ?? []).map((f) => f.cor) : [p.corTerreno];
+  return [...new Set([p.corLaterais, ...terreno])];
 }
 
-// ---------- parâmetros ----------
-const entradas = [...document.querySelectorAll<HTMLInputElement>('[data-param]')];
-
-function aplicarParametrosNaTela() {
-  for (const el of entradas) {
-    const nome = el.dataset.param as NomeParametro;
-    const def = PARAMETROS[nome];
-    const v = estado.params[nome];
-    if (def.tipo === 'booleano') el.checked = v as boolean;
-    else {
-      el.min = String(def.min);
-      el.max = String(def.max);
-      el.value = String(v);
-    }
-  }
-  atualizarRotulos();
+function atualizarCores() {
+  const cores = coresPrevistas(estado.params);
+  const amostras = cores.map((c) => `<span class="amostra" style="background:${c}"></span>`).join('');
+  const excesso = cores.length > FILAMENTOS;
+  $('cores').innerHTML = `Cores: <strong class="${excesso ? 'erro' : ''}">${cores.length}/${FILAMENTOS}</strong> ${amostras}`
+    + (excesso
+      ? `<div class="aviso">A Snapmaker U1 tem ${FILAMENTOS} filamentos. Use a mesma cor em mais de uma peça (ex.: base igual à primeira faixa) ou reduza as faixas.</div>`
+      : '');
 }
 
-function atualizarRotulos() {
-  for (const el of document.querySelectorAll<HTMLElement>('[data-valor]')) {
-    const v = estado.params[el.dataset.valor as NomeParametro] as number;
-    const casas = Number(el.dataset.casas ?? 0);
-    el.textContent = `${v.toFixed(casas)}${el.dataset.sufixo ?? ''}`;
-  }
+function atualizarCreditos() {
+  const f = FONTES[estado.params.fonte];
+  $('creditos').innerHTML = `Dados: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>
+    · Mapa: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>
+    · Elevação: <a href="${f.link}" target="_blank" rel="noopener">${f.atribuicao}</a>`;
 }
-
-for (const el of entradas) {
-  const nome = el.dataset.param as NomeParametro;
-  const aplicar = () => {
-    const bruto = el.type === 'checkbox' ? el.checked : el.value;
-    const novo = validarParametro(nome, bruto);
-    if (novo === estado.params[nome]) return;
-    (estado.params as Record<NomeParametro, number | boolean>)[nome] = novo;
-    atualizarRotulos();
-    atualizarArea();
-    salvarNaUrl();
-    if (modelo) agendarGeracao(nome === 'resolucao' ? 500 : 150);
-  };
-  el.addEventListener('input', () => {
-    // número digitado pela metade (ex.: "1" a caminho de "150") só é aplicado ao sair do campo
-    if (el.type === 'number' && (el.value === '' || !el.checkValidity())) return;
-    aplicar();
-  });
-  // ao sair do campo: aplica o valor (limitado à faixa permitida) e mostra o valor usado
-  el.addEventListener('change', () => {
-    aplicar();
-    aplicarParametrosNaTela();
-  });
-}
-aplicarParametrosNaTela();
-atualizarArea();
 
 // ---------- geração ----------
 botao('btn-gerar').addEventListener('click', () => gerar());
@@ -267,28 +297,31 @@ async function gerar() {
       status(`${etapa}…`);
       $('progresso-barra').style.width = `${Math.round(fracao * 100)}%`;
     });
-    modelo = { ...r, posicoes: r.posicoes, indices: r.indices };
+    resultado = r;
 
-    // reposiciona a câmera só quando a área ou o tamanho mudam
-    const chave = `${JSON.stringify(forma)}|${params.tamanhoMm}`;
-    previa.mostrar([{ malha: modelo, cor: CORES_CAMADAS.terreno }], chave !== chaveEnquadrada);
+    // reposiciona a câmera só quando a área, o tamanho ou o modo mudam
+    const chave = `${JSON.stringify(forma)}|${params.tamanhoMm}|${params.modo}`;
+    quadradoGrade = previa.mostrar(r.partes.map((p) => ({ malha: p, cor: p.cor })), chave !== chaveEnquadrada);
     chaveEnquadrada = chave;
     $('previa-vazia').hidden = true;
+    botao('btn-aramado').hidden = false;
+    mostrarCaixaInfo();
 
-    const medidas = $('previa-medidas');
-    medidas.textContent = `${r.larguraMm.toFixed(1)} × ${r.profundidadeMm.toFixed(1)} × ${r.alturaMaxMm.toFixed(1)} mm`;
-    medidas.hidden = false;
+    const ruins = r.partes.filter((p) => !p.verificacao.valida);
     const v = r.verificacao;
-    const avisoAltura =
-      r.alturaMaxMm > MESA_IMPRESSORA_MM
-        ? `<div class="aviso">Altura de ${r.alturaMaxMm.toFixed(0)} mm passa do limite de ${MESA_IMPRESSORA_MM} mm da impressora. Reduza o exagero ou o tamanho.</div>`
-        : '';
+    const avisos: string[] = [];
+    if (r.info.unidade === 'mm' && r.info.alturaMax > MESA_IMPRESSORA_MM) {
+      avisos.push(`Altura de ${inteiro(r.info.alturaMax)} mm passa do limite de ${MESA_IMPRESSORA_MM} mm da impressora. Reduza o exagero ou o tamanho.`);
+    }
+    if (r.info.aviso) avisos.push(r.info.aviso);
     status(
-      v.valida
-        ? `<span class="ok">✓ Malha fechada e válida</span> · ${v.triangulos.toLocaleString('pt-BR')} triângulos · zoom de elevação ${r.zoom}${avisoAltura}`
-        : `<span class="erro">✗ Malha com problemas: ${v.erros.join('; ')}</span>`,
+      (v.valida && ruins.length === 0
+        ? `<span class="ok">✓ Malha fechada e válida</span> · ${r.partes.length} peças, todas manifold`
+        : `<span class="erro">✗ Malha com problemas: ${[...v.erros, ...ruins.map((p) => `${p.nome}: ${p.verificacao.erros.join(', ')}`)].join('; ')}</span>`)
+      + avisos.map((a) => `<div class="aviso">${a}</div>`).join(''),
     );
     botao('btn-stl').disabled = !v.valida;
+    atualizarPainel();
   } catch (erro) {
     status(`<span class="erro">Erro: ${erro instanceof Error ? erro.message : erro}</span>`);
   } finally {
@@ -298,20 +331,52 @@ async function gerar() {
   }
 }
 
+let quadradoGrade = 10;
+
+function mostrarCaixaInfo() {
+  if (!resultado) return;
+  const i = resultado.info;
+  const s = sistema();
+  const caixa = $('caixa-info');
+  if (i.unidade === 'm') {
+    caixa.innerHTML = `<strong>${distancia(i.largura, s)} × ${distancia(i.profundidade, s)} × ${distancia(i.alturaMax, s)}</strong><br>
+      Escala 1:1 (metros reais) · exagero ${decimal(i.exageroEfetivo, 2)}x<br>
+      Grade: 1 quadrado = ${distancia(quadradoGrade, s)}`;
+  } else {
+    caixa.innerHTML = `<strong>${medidaModelo(i.largura, s, 0)} × ${medidaModelo(i.profundidade, s, 0)} × ${medidaModelo(i.alturaMax, s, 1)}</strong><br>
+      Escala 1:${inteiro(arredondarEscala(i.escala))} · exagero ${decimal(i.exageroEfetivo, 2)}x<br>
+      Grade: 1 quadrado = ${medidaModelo(quadradoGrade, s, quadradoGrade < 1 ? 1 : 0)}<br>
+      Altitudes: ${inteiro(i.altitudeMin)} m → ${inteiro(i.altitudeMax)} m`;
+  }
+  caixa.hidden = false;
+}
+
+/** 19696 → 19700: escala com 3 algarismos significativos. */
+function arredondarEscala(n: number) {
+  const p = 10 ** Math.max(0, Math.floor(Math.log10(n)) - 2);
+  return Math.round(n / p) * p;
+}
+
 function status(html: string) {
   const el = $('status');
   el.innerHTML = html;
   el.hidden = false;
 }
 
-// Link com área: gera o modelo ao abrir a página (os dados vêm do cache)
-if (estado.forma) agendarGeracao(0);
+// ---------- visualização ----------
+botao('btn-aramado').addEventListener('click', () => {
+  const b = botao('btn-aramado');
+  const ligado = b.getAttribute('aria-pressed') !== 'true';
+  b.setAttribute('aria-pressed', String(ligado));
+  previa.definirAramado(ligado);
+});
 
 // ---------- exportação ----------
 botao('btn-stl').addEventListener('click', () => {
-  if (!modelo || !estado.forma) return;
+  if (!resultado || !estado.forma) return;
   const nome = nomeArquivo(estado.nome || formatarCoordenadas(caixaDaForma(estado.forma)));
-  baixar(new Blob([escreverStl(modelo, `Relevo3D ${nome}`)], { type: 'model/stl' }), `${nome}-${estado.params.tamanhoMm}mm.stl`);
+  const sufixo = resultado.info.unidade === 'm' ? '1x1-metros' : `${inteiro(estado.params.tamanhoMm)}mm`;
+  baixar(new Blob([escreverStl(resultado.unica, `Relevo3D ${nome}`)], { type: 'model/stl' }), `${nome}-${sufixo}.stl`);
 });
 
 function nomeArquivo(texto: string) {
@@ -334,3 +399,9 @@ function baixar(blob: Blob, nome: string) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
+
+// ---------- início ----------
+atualizarPainel();
+atualizarArea();
+// link com área: gera o modelo ao abrir a página (os dados vêm do cache)
+if (estado.forma) agendarGeracao(0);

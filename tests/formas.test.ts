@@ -3,6 +3,7 @@ import type { GradeElevacao } from '../src/core/elevacao.ts';
 import { areaM2, caixaDaForma, contornoLonLat, dimensoesMetros, poligonoSeCruza, type Forma } from '../src/core/geo.ts';
 import { carregarManifold, validarComManifold } from '../src/core/manifold.ts';
 import { gerarModelo, planejarAmostragem } from '../src/core/modelo.ts';
+import { parametrosPadrao } from '../src/core/estado.ts';
 import { verificarMalha } from '../src/core/verificacao.ts';
 import { aplicarArraste } from '../src/navegador/desenho.ts';
 
@@ -37,7 +38,7 @@ function gradeFalsa(forma: Forma, resolucao: number, f: (x: number, y: number) =
   return { nx, ny, elev, larguraM: largura, alturaM: altura, zoom: 14 };
 }
 
-const params = { tamanhoMm: 150, exagero: 2, baseMm: 3, achatarMar: true };
+const params = { ...parametrosPadrao(), tamanhoMm: 150, exagero: 2, baseMm: 3, simplificacaoMm: 0 };
 const morros = (x: number, y: number) => 200 + 150 * Math.sin(x * 11) * Math.cos(y * 8);
 
 describe('modelo recortado no formato da área', async () => {
@@ -46,16 +47,16 @@ describe('modelo recortado no formato da área', async () => {
   for (const [nome, forma] of Object.entries(FORMAS)) {
     it(`é um sólido fechado e válido (${nome})`, async () => {
       const r = gerarModelo(wasm, gradeFalsa(forma, 150, morros), forma, params);
-      const v = verificarMalha(r.malha);
+      const v = verificarMalha(r.malhaUnica);
       expect(v.erros).toEqual([]);
-      const m = await validarComManifold(r.malha);
+      const m = await validarComManifold(r.malhaUnica);
       expect(m.status).toBe('NoError');
       expect(m.genero).toBe(0);
       // o lado maior do modelo tem o tamanho pedido
-      expect(Math.max(r.larguraMm, r.profundidadeMm)).toBeCloseTo(150, 0);
+      expect(Math.max(r.largura, r.profundidade)).toBeCloseTo(150, 0);
       // fundo plano em z = 0
       let zMin = Infinity;
-      for (let k = 2; k < r.malha.posicoes.length; k += 3) zMin = Math.min(zMin, r.malha.posicoes[k]);
+      for (let k = 2; k < r.malhaUnica.posicoes.length; k += 3) zMin = Math.min(zMin, r.malhaUnica.posicoes[k]);
       expect(zMin).toBeCloseTo(0, 5);
     });
   }
@@ -67,13 +68,13 @@ describe('modelo recortado no formato da área', async () => {
       const { largura, altura } = dimensoesMetros(caixaDaForma(forma));
       const mmPorMetro = 150 / Math.max(largura, altura);
       const areaMm2 = areaM2(forma) * mmPorMetro ** 2;
-      expect(verificarMalha(r.malha).volumeMm3).toBeCloseTo(areaMm2 * params.baseMm, -1);
+      expect(verificarMalha(r.malhaUnica).volumeMm3).toBeCloseTo(areaMm2 * params.baseMm, -1);
     }
   });
 
   it('círculo sai redondo: largura = profundidade', () => {
     const r = gerarModelo(wasm, gradeFalsa(FORMAS.circulo, 120, morros), FORMAS.circulo, params);
-    expect(r.larguraMm).toBeCloseTo(r.profundidadeMm, 0);
+    expect(r.largura).toBeCloseTo(r.profundidade, 0);
   });
 
   it('recusa uma área vazia', () => {

@@ -83,7 +83,7 @@ describe('elevação', () => {
       }
       return { width: 256, height: 256, data };
     };
-    const grade = await amostrarElevacao({ oeste: -46.66, sul: -23.57, leste: -46.63, norte: -23.55 }, 60, tileFalso);
+    const grade = await amostrarElevacao({ oeste: -46.66, sul: -23.57, leste: -46.63, norte: -23.55 }, 60, { tamanhoTile: 256, zoomMaximo: 15, carregar: tileFalso });
     expect(grade.nx).toBe(60);
     for (const v of grade.elev) {
       expect(v).toBeGreaterThanOrEqual(0);

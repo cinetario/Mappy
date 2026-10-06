@@ -9,60 +9,55 @@
   <body>
     <div id="app">
       <aside id="painel">
-        <header>
-          <h1>Relevo3D</h1>
-          <p class="sub">Mapas 3D para impressão</p>
-        </header>
+        <div id="painel-rolagem">
+          <header>
+            <h1>Relevo3D</h1>
+            <p class="sub">Mapas 3D para impressão</p>
+          </header>
 
-        <section>
-          <h2>1. Local</h2>
-          <form id="form-busca" class="linha">
-            <input id="busca" type="search" placeholder="Endereço, cidade, montanha…" autocomplete="off" />
-            <button type="submit">Buscar</button>
-          </form>
-          <ul id="resultados"></ul>
-        </section>
+          <div id="presets" role="group" aria-label="Presets">
+            <button type="button" data-preset="soTerreno">Só terreno</button>
+            <button type="button" data-preset="topografico">Topográfico</button>
+            <button type="button" data-preset="impressao3d">Impressão 3D</button>
+            <button type="button" id="btn-redefinir" class="secundario" title="Volta todos os parâmetros ao padrão (mantém a área)">Redefinir</button>
+          </div>
 
-        <section>
-          <h2>2. Área</h2>
-          <p class="dica" id="dica-area">Escolha uma forma na barra sobre o mapa e desenhe a área.</p>
-          <div id="info-area" class="info" hidden></div>
-        </section>
+          <section>
+            <h2>Local</h2>
+            <form id="form-busca" class="linha">
+              <input id="busca" type="search" placeholder="Endereço, cidade, montanha…" autocomplete="off" />
+              <button type="submit">Buscar</button>
+            </form>
+            <ul id="resultados"></ul>
+          </section>
 
-        <section>
-          <h2>3. Modelo</h2>
-          <label>Tamanho do lado maior (mm)
-            <input data-param="tamanhoMm" type="number" step="5" />
-          </label>
-          <label>Exagero vertical do relevo: <strong data-valor="exagero" data-sufixo="x" data-casas="1"></strong>
-            <input data-param="exagero" type="range" step="0.1" />
-          </label>
-          <label>Espessura da base (mm)
-            <input data-param="baseMm" type="number" step="0.2" />
-          </label>
-          <label>Detalhe (pontos no lado maior): <strong data-valor="resolucao"></strong>
-            <input data-param="resolucao" type="range" step="10" />
-          </label>
-          <label class="check">
-            <input data-param="achatarMar" type="checkbox" /> Mar plano (ignora o fundo do oceano)
-          </label>
-        </section>
+          <section>
+            <h2>Área</h2>
+            <p class="dica" id="dica-area">Escolha uma forma na barra sobre o mapa e desenhe a área.</p>
+            <div id="info-area" class="info" hidden></div>
+          </section>
 
-        <section>
+          <div id="abas" role="tablist">
+            <button type="button" role="tab" data-aba="modelo" aria-selected="true">Modelo</button>
+            <button type="button" role="tab" data-aba="camadas" aria-selected="false">Camadas</button>
+          </div>
+          <div id="aba-modelo" role="tabpanel"></div>
+          <div id="aba-camadas" role="tabpanel" hidden>
+            <p class="dica">Prédios, ruas, água, cobertura do solo, árvores e curvas de nível chegam nas fases C e D.</p>
+          </div>
+
+          <footer id="creditos"></footer>
+        </div>
+
+        <div id="acoes">
+          <div id="cores" class="info"></div>
           <div class="linha">
             <button id="btn-gerar" type="button" class="principal" disabled>Gerar modelo 3D</button>
             <button id="btn-stl" type="button" disabled>Baixar STL</button>
           </div>
           <div id="progresso" hidden><div id="progresso-barra"></div></div>
           <div id="status" class="info" hidden></div>
-        </section>
-
-        <footer>
-          Dados: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>
-          · Mapa: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>
-          · Elevação: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">AWS Terrain Tiles</a>
-          (SRTM, GMTED, ETOPO1 e outras fontes)
-        </footer>
+        </div>
       </aside>
 
       <main>
@@ -89,7 +84,8 @@
         </div>
         <div id="previa">
           <div id="previa-vazia">A pré-visualização 3D aparece aqui depois de gerar o modelo.</div>
-          <div id="previa-medidas" hidden></div>
+          <button type="button" id="btn-aramado" class="flutuante" hidden aria-pressed="false" title="Mostrar as arestas dos triângulos">Wireframe</button>
+          <div id="caixa-info" hidden></div>
         </div>
       </main>
     </div>

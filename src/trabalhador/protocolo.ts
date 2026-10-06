@@ -9,15 +9,43 @@ export interface PedidoGeracao {
   params: Parametros;
 }
 
-export interface ResultadoGeracao {
+export interface ParteGerada {
+  id: string;
+  nome: string;
+  cor: string;
   posicoes: Float32Array;
   indices: Uint32Array;
-  larguraMm: number;
-  profundidadeMm: number;
-  alturaMaxMm: number;
-  mmPorMetro: number;
-  zoom: number;
+  zMin: number;
+  zMax: number;
   verificacao: ResultadoVerificacao;
+}
+
+export interface InfoModelo {
+  unidade: 'mm' | 'm';
+  largura: number;
+  profundidade: number;
+  alturaMax: number;
+  porMetro: number;
+  escala: number;
+  exageroEfetivo: number;
+  zBase: number;
+  altitudeMin: number;
+  altitudeMax: number;
+  triangulosGrade: number;
+  triangulosSuperficie: number;
+  /** zoom dos tiles pedido e efetivamente usado (-1 = fonte sem tiles) */
+  zoom: number;
+  zoomEfetivo: number;
+  resolucaoM: number;
+  aviso?: string;
+}
+
+export interface ResultadoGeracao {
+  partes: ParteGerada[];
+  /** todas as peças fundidas (STL único) */
+  unica: { posicoes: Float32Array; indices: Uint32Array };
+  verificacao: ResultadoVerificacao;
+  info: InfoModelo;
 }
 
 export type MensagemDoWorker =

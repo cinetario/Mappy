@@ -3,10 +3,14 @@
 Aplicativo local (roda no seu PC, pelo navegador) que gera modelos 3D de mapas de
 qualquer lugar do mundo e exporta para impressão 3D.
 
-> **Fase atual: A**: seleção em retângulo, círculo, hexágono ou polígono (a base
-> do modelo sai no mesmo formato), terreno, exportação STL e estado salvo na URL.
-> Próximas fases: B (aba Modelo) → C (prédios, ruas, água) → D (cobertura do
-> solo, árvores, curvas de nível) → E (moldura, texto, blocos, 3MF multicor).
+> **Fase atual: B.** Já funciona:
+> - seleção em retângulo, círculo, hexágono ou polígono (a base sai no mesmo formato);
+> - aba Modelo com presets, 3 fontes de elevação e malha adaptativa;
+> - faixas de cor por altitude alinhadas às camadas de impressão;
+> - exportação STL e estado salvo na URL.
+>
+> Próximas fases: C (prédios, ruas, água) → D (cobertura do solo, árvores, curvas
+> de nível) → E (moldura, texto, blocos, 3MF multicor).
 
 ---
 
@@ -72,20 +76,49 @@ PowerShell e aperte `Ctrl + C`.
 
    O painel mostra o tamanho real, a área (km²) e a escala do modelo.
    Se o modelo já foi gerado, ajustar a área atualiza a pré-visualização.
-3. **Modelo**:
-   - *Tamanho do lado maior*: em mm (a Snapmaker U1 imprime até 270 mm).
-   - *Exagero vertical*: 1x é a escala real. Áreas planas ou grandes ficam
-     melhores com 2x a 4x.
-   - *Espessura da base*: quanto de material fica abaixo do ponto mais baixo.
-   - *Detalhe*: número de pontos no lado maior. 300 é um bom padrão; acima de
-     ~400 só ajuda em áreas pequenas, porque os dados de elevação têm limite de
-     resolução (veja a seção 6).
-   - *Mar plano*: transforma o fundo do oceano em superfície plana no nível 0.
-4. Clique em **Gerar modelo 3D**. A pré-visualização aparece à direita
+3. **Presets** (botões no topo do painel): ponto de partida rápido.
+   - **Só terreno**: uma cor, exagero 1,5x.
+   - **Topográfico**: faixas de cor por altitude, exagero 2x.
+   - **Impressão 3D**: 220 mm, altura travada em 17 mm, base de 2 mm, camadas de 0,2 mm.
+   - **Redefinir**: volta tudo ao padrão (a área continua).
+4. **Aba Modelo**: seções que abrem uma de cada vez.
+   - **Dimensões e coordenadas**
+     - *Impressão 3D* (em mm) ou *Escala 1:1* (em metros reais, para Blender/GIS).
+     - Tamanho do maior lado (padrão 220 mm; a U1 imprime até 270 mm).
+     - *Travar altura total*: o exagero é calculado para o ponto mais alto ficar
+       na altura pedida.
+     - Unidades métricas ou imperiais (só na tela; os arquivos são sempre em mm).
+   - **Detalhes do terreno**
+     - Exagero vertical.
+     - Fonte de elevação (veja a seção 6), com a resolução real usada no modelo.
+     - Zoom dos tiles (Automático escolhe sozinho).
+     - Pontos no lado maior.
+     - *Simplificação*: triangulação adaptativa que usa muitos triângulos onde o
+       relevo muda e poucos onde é plano. Com 0,05 mm, a malha costuma ficar 5 a
+       10 vezes menor sem diferença visível. 0 desliga.
+     - Mar plano.
+   - **Estilo do terreno**
+     - Cor sólida ou *faixas por altitude*: lista editável de "% da altura : cor".
+     - Cada faixa vira uma **peça separada**, cortada exatamente numa altura de
+       camada, para trocar de filamento sem degraus.
+   - **Base**: altura abaixo do ponto mais baixo (padrão 2 mm), arredondada
+     para um número inteiro de camadas.
+   - **Laterais**: cor da base (que é uma peça separada).
+   - **Camadas de impressão**: altura de camada e da 1ª camada. Use os mesmos
+     valores do perfil no Snapmaker Orca.
+   - **Estatísticas**: triângulos, peças e tamanho estimado dos arquivos.
+5. Clique em **Gerar modelo 3D**. A pré-visualização aparece à direita
    (arraste para girar, roda do mouse para zoom, botão direito para mover).
-   Depois de gerado, mudar os parâmetros atualiza a prévia na hora.
-5. A linha de status mostra **✓ Malha fechada e válida** quando o modelo passou na
-   verificação. Clique em **Baixar STL**.
+   - A caixa no canto mostra as dimensões finais, a escala (1:N), o exagero
+     usado e o tamanho dos quadrados da grade do chão.
+   - O botão **Wireframe** mostra os triângulos da malha.
+   - Depois de gerado, mudar os parâmetros atualiza a prévia na hora.
+6. A linha de status mostra **✓ Malha fechada e válida** quando todas as peças
+   passaram na verificação. Clique em **Baixar STL** (todas as peças fundidas
+   num arquivo).
+
+**Contador de cores:** acima dos botões aparece "Cores: N/4". A Snapmaker U1 tem
+4 filamentos; se passar disso, o app avisa.
 
 **Salvar e compartilhar:** a área e todos os parâmetros ficam no endereço da
 página (a parte depois do `#`). Copie a URL para guardar um modelo ou mandar
@@ -119,22 +152,30 @@ Outros comandos:
 | Comando | O que faz |
 |---|---|
 | `npm test` | Roda os testes automáticos (inclusive o de malha manifold) |
-| `npm run exemplo` | Gera um STL do Pão de Açúcar em `saida\` sem abrir o navegador. Aceita `-- circulo`, `-- hexagono` ou um trecho copiado da URL do app, ex.: `-- "#a=c:-43.16,-22.95,1500&t=120"` |
+| `npm run exemplo` | Gera um STL do Pão de Açúcar em `saida\` sem abrir o navegador. Aceita `-- circulo`, `-- hexagono` ou pedaços da URL do app separados por **espaço** (o Windows não aceita `&` aqui), ex.: `npm run exemplo -- a=c:-43.16,-22.95,1500 t=120 f=copernicus` |
 | `npm run typecheck` | Confere os tipos do TypeScript |
 
 ## 6. Dados, cache e limites
 
-| Dado | Fonte | Licença |
-|---|---|---|
-| Elevação | [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (formato Terrarium) | Aberta, uso comercial permitido com atribuição |
-| Mapa de fundo | [OpenFreeMap](https://openfreemap.org) | Grátis, sem chave |
-| Busca de endereços | [Nominatim](https://nominatim.org) / OpenStreetMap | ODbL |
+| Dado | Fonte | Resolução | Licença |
+|---|---|---|---|
+| Elevação (padrão) | [Mapterhorn](https://mapterhorn.com) | ~30 m no mundo; até 1 m em vários países | Fontes abertas com atribuição ([lista](https://mapterhorn.com/attribution)) |
+| Elevação | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/) | ~30 m | Grátis com atribuição obrigatória (aparece no rodapé do app) |
+| Elevação | [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Terrarium) | ~30–90 m | Aberta, com atribuição |
+| Mapa de fundo | [OpenFreeMap](https://openfreemap.org) | — | Grátis, sem chave |
+| Busca de endereços | [Nominatim](https://nominatim.org) / OpenStreetMap | — | ODbL |
 
-- **Atribuição obrigatória:** "© OpenStreetMap contributors" aparece no app. Se
-  vender ou divulgar as impressões, inclua essa frase (por exemplo, numa etiqueta).
-  Os dados de elevação combinam SRTM, GMTED2010, ETOPO1 e outras fontes públicas;
-  veja os créditos completos em
-  [github.com/tilezen/joerd](https://github.com/tilezen/joerd/blob/master/docs/attribution.md).
+- **Atribuição obrigatória:** o rodapé do app mostra "© OpenStreetMap contributors"
+  e o crédito da fonte de elevação escolhida. Se vender ou divulgar as impressões,
+  inclua esses créditos (por exemplo, numa etiqueta).
+  - Créditos do Terrain Tiles:
+    [github.com/tilezen/joerd](https://github.com/tilezen/joerd/blob/master/docs/attribution.md).
+- **Mapterhorn fora da Europa:** em muitos lugares só existem tiles até o zoom 12
+  (~20 m por pixel). O app usa automaticamente o maior zoom disponível e mostra
+  qual foi usado.
+- **Copernicus mede a superfície:** inclui prédios e copas de árvores. Em cidades,
+  prefira o Mapterhorn. A primeira geração numa região leva alguns segundos, porque
+  o app baixa só os pedaços necessários de arquivos de ~46 MB.
 - **Cache:** tudo que é baixado fica em `mapas3d\cache\`. Gerar de novo a mesma
   área não acessa a internet. Pode apagar essa pasta a qualquer momento.
 - **Busca:** limitada a 1 pedido por segundo, como pede a política do Nominatim.
@@ -144,9 +185,14 @@ Outros comandos:
 - **Resolução dos dados de elevação:** cerca de 30 m na maior parte do mundo. Picos
   muito finos saem mais baixos que na realidade. Exemplo: o Pão de Açúcar (396 m)
   aparece com ~304 m. Por isso, áreas de 2 a 20 km de lado costumam dar o melhor resultado.
-- **Áreas grandes:** acima de ~25 km² o app avisa. Na fase 2 o serviço de
-  prédios e ruas (Overpass) fica lento ou recusa áreas grandes; para só o relevo,
-  tudo bem.
+- **Tamanho da área:**
+  - até 25 km²: tudo liberado;
+  - de 25 a 100 km²: o app avisa que fica lento e que ruas locais saem finas
+    demais (sugere só vias principais, água e cobertura do solo);
+  - acima de 100 km²: prédios e ruas ficam desligados por padrão (a partir da
+    Fase C).
+- **Largura da rua local:** o painel da área mostra quanto uma rua de 4 m mede
+  impressa. Abaixo de 0,8 mm (2 linhas do bico de 0,4 mm), ela é engrossada.
 
 ## 7. Estrutura do projeto
 
@@ -158,21 +204,28 @@ mapas3d/
     estilo.css
     core/               lógica pura (funciona no navegador e no Node)
       geo.ts            formas de seleção, medidas em metros, projeção, tiles
-      estado.ts         definição dos parâmetros + leitura/escrita na URL
-      elevacao.ts       leitura dos tiles Terrarium e amostragem da grade
-      terreno.ts        grade → bloco sólido (topo, paredes, fundo)
-      modelo.ts         recorta o bloco no formato da área (manifold-3d)
+      estado.ts         definição dos parâmetros, presets + leitura/escrita na URL
+      elevacao.ts       tiles Terrarium (AWS e Mapterhorn), "tile pai" quando falta zoom
+      terreno.ts        grade → bloco sólido; triangulação adaptativa (Delatin)
+      modelo.ts         recorte no formato da área e divisão em peças (base, faixas)
+      camadas-impressao.ts  alinhamento de alturas às camadas de impressão
+      limites.ts        faixas de tamanho de área e largura mínima imprimível
       verificacao.ts    verificação de malha manifold
       manifold.ts       ponte com a biblioteca manifold-3d (booleanas e validação)
       stl.ts            leitura e escrita de STL binário
     navegador/          partes que só rodam no navegador
       mapa.ts           MapLibre e mapa de fundo
       desenho.ts        ferramentas de desenho e alças de edição
+      painel.ts         controles do painel (número, cor, opções, faixas, seções)
+      aba-modelo.ts     aba Modelo
+      unidades.ts       exibição em métrico ou imperial
       gerador.ts        conversa com o Web Worker
       previa.ts         pré-visualização 3D (Three.js)
       tiles.ts          baixa tiles pelo servidor local
     trabalhador/        Web Worker: gera o modelo sem travar a tela
   server/               servidor local (embutido no Vite) com cache em disco
+    fontes.ts           tiles, Nominatim, cache e novas tentativas
+    copernicus.ts       leitura parcial dos GeoTIFF do Copernicus
   scripts/              comandos verificar e exemplo
   tests/                testes automáticos (Vitest)
 ```

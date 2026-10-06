@@ -15,7 +15,7 @@ export function criarMapa(container: HTMLElement) {
     style: ESTILO,
     center: [-46.6333, -23.5505],
     zoom: 11,
-    attributionControl: { compact: false, customAttribution: 'Elevação: AWS Terrain Tiles' },
+    attributionControl: { compact: false },
   });
   mapa.addControl(new NavigationControl({ showCompass: false }), 'top-right');
   mapa.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left');
