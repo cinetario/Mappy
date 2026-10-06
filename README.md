@@ -3,14 +3,15 @@
 Aplicativo local (roda no seu PC, pelo navegador) que gera modelos 3D de mapas de
 qualquer lugar do mundo e exporta para impressão 3D.
 
-> **Fase atual: B.** Já funciona:
+> **Fase atual: C.** Já funciona:
 > - seleção em retângulo, círculo, hexágono ou polígono (a base sai no mesmo formato);
 > - aba Modelo com presets, 3 fontes de elevação e malha adaptativa;
 > - faixas de cor por altitude alinhadas às camadas de impressão;
+> - aba Camadas com **prédios, ruas e água** do OpenStreetMap;
 > - exportação STL e estado salvo na URL.
 >
-> Próximas fases: C (prédios, ruas, água) → D (cobertura do solo, árvores, curvas
-> de nível) → E (moldura, texto, blocos, 3MF multicor).
+> Próximas fases: D (cobertura do solo, árvores, curvas de nível) → E (moldura,
+> texto, blocos, 3MF multicor).
 
 ---
 
@@ -117,8 +118,48 @@ PowerShell e aperte `Ctrl + C`.
    passaram na verificação. Clique em **Baixar STL** (todas as peças fundidas
    num arquivo).
 
-**Contador de cores:** acima dos botões aparece "Cores: N/4". A Snapmaker U1 tem
-4 filamentos; se passar disso, o app avisa.
+### Aba Camadas
+
+Cada camada tem um **interruptor** (liga/desliga no arquivo), a **quantidade** de
+elementos e um **olho** (esconde só na pré-visualização; continua no arquivo).
+Clique no nome para abrir as opções.
+
+- **Prédios**: altura vinda de `height` / `building:levels` do OSM (3 m por
+  andar), com altura padrão para os que não têm essa informação.
+  - *Prédios detalhados* usa `building:part` quando existir.
+  - Exagero de altura e aleatoriedade (sempre igual para o mesmo prédio).
+  - Mostra o prédio mais baixo e o mais alto, em mm e em metros reais.
+  - *Elevado* (sobre o terreno) ou *Rebaixado* (encaixado num sulco).
+  - Deslocamento vertical, cor e arestas (só na visualização).
+  - O telhado de cada prédio cai exatamente numa altura de camada.
+- **Ruas**: *Superfície* (embutida, rente ao terreno) ou *Extrudada*, com
+  integração *Elevada* ou *Rebaixada*, mais altura, profundidade e deslocamento.
+  - A altura também aparece em metros reais.
+  - Escala de largura.
+  - Em *Tipos de via e larguras* dá para ligar/desligar cada tipo e ver a
+    largura real e a impressa. Abaixo de 0,8 mm, a via é engrossada.
+  - Túneis vêm desligados.
+- **Água**: lagos, represas, rios (em área e em linha) e **mar**, montado a
+  partir das linhas de costa.
+  - Lagos e mar ficam **planos**, numa altura de camada; rios em declive
+    acompanham o terreno.
+  - A profundidade do rebaixo é limitada para deixar 0,2 mm de base, e o app avisa.
+  - *Avançado*: ocultar corpos d'água pequenos, por largura e área mínimas.
+
+**Tamanho da área e camadas:** prédios e ruas ficam em *automático*: ligados até
+100 km², desligados acima disso. Dá para ligar manualmente, com aviso; "Voltar ao
+automático" desfaz. Acima de 25 km² aparece o atalho **Só vias principais**.
+
+**Muitos elementos:** se a área tiver mais de 15 mil prédios ou 15 mil ruas, o
+app mostra a contagem antes de montar o modelo e oferece: gerar mesmo assim,
+desligar prédios ou ficar só com as vias principais.
+
+**Sem sobreposição:** prédios têm prioridade sobre ruas, e ruas sobre água (uma
+ponte corta o rio). Cada peça é um sólido fechado separado, pronto para o 3MF
+multicor da Fase E.
+
+**Contador de cores:** acima dos botões aparece "Cores: N/4", contando terreno,
+base e camadas ligadas. A Snapmaker U1 tem 4 filamentos; se passar disso, o app avisa.
 
 **Salvar e compartilhar:** a área e todos os parâmetros ficam no endereço da
 página (a parte depois do `#`). Copie a URL para guardar um modelo ou mandar
@@ -189,10 +230,19 @@ Outros comandos:
   - até 25 km²: tudo liberado;
   - de 25 a 100 km²: o app avisa que fica lento e que ruas locais saem finas
     demais (sugere só vias principais, água e cobertura do solo);
-  - acima de 100 km²: prédios e ruas ficam desligados por padrão (a partir da
-    Fase C).
+  - acima de 100 km²: prédios e ruas ficam desligados por padrão.
 - **Largura da rua local:** o painel da área mostra quanto uma rua de 4 m mede
   impressa. Abaixo de 0,8 mm (2 linhas do bico de 0,4 mm), ela é engrossada.
+- **OpenStreetMap (Overpass):**
+  - A área é baixada em blocos de 0,04° (~4 km), de uma grade fixa. Ajustar a
+    área reaproveita o cache em `cache\osm\`.
+  - No máximo 2 consultas ao mesmo tempo, como pede a política do Overpass.
+  - Quando o servidor está ocupado (HTTP 429/503/504), o app espera e tenta de
+    novo; se não der certo, usa um servidor espelho.
+  - Se um bloco é pesado demais, ele é dividido em 4 (até 3 vezes).
+- **STL único:** as camadas são fundidas ao terreno. Alguns prédios podem ficar
+  como corpos separados do terreno por uma folga de ~0,0004 mm. O arquivo
+  continua válido, e na impressão eles saem colados.
 
 ## 7. Estrutura do projeto
 
@@ -210,6 +260,11 @@ mapas3d/
       modelo.ts         recorte no formato da área e divisão em peças (base, faixas)
       camadas-impressao.ts  alinhamento de alturas às camadas de impressão
       limites.ts        faixas de tamanho de área e largura mínima imprimível
+      osm.ts            leitura dos dados do OSM (prédios, vias, água, multipolígonos)
+      vias.ts           tipos de via e larguras
+      costa.ts          mar a partir das linhas de costa
+      camadas.ts        geometria de prédios, ruas e água sobre o terreno
+      blocos.ts         divisão da área em blocos para o Overpass
       verificacao.ts    verificação de malha manifold
       manifold.ts       ponte com a biblioteca manifold-3d (booleanas e validação)
       stl.ts            leitura e escrita de STL binário
@@ -218,6 +273,8 @@ mapas3d/
       desenho.ts        ferramentas de desenho e alças de edição
       painel.ts         controles do painel (número, cor, opções, faixas, seções)
       aba-modelo.ts     aba Modelo
+      aba-camadas.ts    aba Camadas
+      osm-cliente.ts    baixa os blocos do OSM pelo servidor local
       unidades.ts       exibição em métrico ou imperial
       gerador.ts        conversa com o Web Worker
       previa.ts         pré-visualização 3D (Three.js)
@@ -226,6 +283,7 @@ mapas3d/
   server/               servidor local (embutido no Vite) com cache em disco
     fontes.ts           tiles, Nominatim, cache e novas tentativas
     copernicus.ts       leitura parcial dos GeoTIFF do Copernicus
+    overpass.ts         consultas ao Overpass com fila, cache e novas tentativas
   scripts/              comandos verificar e exemplo
   tests/                testes automáticos (Vitest)
 ```

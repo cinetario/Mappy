@@ -25,6 +25,14 @@ export function camadasUrbanasPorPadrao(km2: number): boolean {
   return classificarArea(km2) !== 'muito-grande';
 }
 
+/** Estado efetivo de uma camada com modo automático. */
+export function camadaUrbanaAtiva(valor: 'auto' | 'sim' | 'nao', km2: number): boolean {
+  return valor === 'sim' || (valor === 'auto' && camadasUrbanasPorPadrao(km2));
+}
+
+/** Acima destes números, o app pede confirmação antes de montar a geometria. */
+export const LIMITE_CONFIRMACAO = { predios: 15000, vias: 15000, agua: 3000 };
+
 export interface LarguraImpressa {
   /** largura na escala real, em mm */
   realMm: number;

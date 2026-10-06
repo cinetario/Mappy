@@ -1,12 +1,15 @@
 // Monta o modelo final a partir da grade de elevação e da forma escolhida:
 // bloco de terreno → recorte no contorno → divisão em peças (base, terreno/faixas).
 import { alinharZ, type GradeCamadas } from './camadas-impressao.ts';
+import { gerarCamadas, type DadosCamadas, type EstatisticasCamadas, type OpcoesCamadas, type ResultadoCamadas } from './camadas.ts';
 import type { GradeElevacao } from './elevacao.ts';
 import { lerFaixas, type Parametros } from './estado.ts';
 import { areaAssinada, caixaDaForma, contornoLonLat, criarProjecao, deslocar, dimensoesMetros, type Forma, type Retangulo } from './geo.ts';
-import { caixaLimite, type Malha } from './malha.ts';
+import { LARGURA_MINIMA_MM } from './limites.ts';
+import { caixaLimite, separarVerticesCoincidentes, type Malha } from './malha.ts';
 import { solidoParaMalha, malhaParaSolido, type Solido, type Wasm } from './manifold.ts';
-import { gerarBlocoTerreno, menorAltitude } from './terreno.ts';
+import { alturasDaGrade, gerarBlocoTerreno, menorAltitude } from './terreno.ts';
+import { lerTiposDesligados } from './vias.ts';
 
 export interface PlanoAmostragem {
   /** caixa do contorno escolhido */
@@ -61,6 +64,7 @@ export interface ResultadoModelo {
   partes: Parte[];
   /** todas as peças fundidas (para o STL único) */
   malhaUnica: Malha;
+  camadas: { avisos: string[]; estatisticas: EstatisticasCamadas } | null;
   unidade: 'mm' | 'm';
   largura: number;
   profundidade: number;
@@ -79,11 +83,58 @@ export interface ResultadoModelo {
   contorno: [number, number][];
 }
 
-export type ParametrosModelo = Pick<Parametros,
-  'modo' | 'tamanhoMm' | 'travarAltura' | 'alturaTotalMm' | 'exagero' | 'simplificacaoMm' | 'achatarMar' |
-  'estilo' | 'corTerreno' | 'faixas' | 'baseMm' | 'corLaterais' | 'alturaCamadaMm' | 'primeiraCamadaMm'>;
+export type ParametrosModelo = Parametros;
 
-export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: ParametrosModelo): ResultadoModelo {
+function opcoesCamadas(p: Parametros, mm: (v: number) => number, real: boolean, camadas: GradeCamadas): OpcoesCamadas {
+  return {
+    real,
+    mm,
+    camadas,
+    larguraMinima: real ? 0 : LARGURA_MINIMA_MM,
+    predios: {
+      exagero: p.prediosExagero,
+      aleatorio: p.prediosAleatorio,
+      integracao: p.prediosIntegracao,
+      profundidade: mm(p.prediosProfundidadeMm),
+      deslocamento: mm(p.prediosDeslocamentoMm),
+      cor: p.prediosCor,
+    },
+    ruas: {
+      modo: p.ruasModo,
+      altura: mm(p.ruasAlturaMm),
+      integracao: p.ruasIntegracao,
+      profundidade: mm(p.ruasProfundidadeMm),
+      deslocamento: mm(p.ruasDeslocamentoMm),
+      cor: p.ruasCor,
+      escalaLargura: p.ruasEscalaLargura,
+      desligados: lerTiposDesligados(p.ruasTiposDesligados) ?? [],
+    },
+    agua: {
+      modo: p.aguaModo,
+      altura: mm(p.aguaAlturaMm),
+      integracao: p.aguaIntegracao,
+      profundidade: mm(p.aguaProfundidadeMm),
+      cor: p.aguaCor,
+      rios: p.aguaRios,
+      ocultarPequenos: p.aguaOcultarPequenos,
+      larguraMin: mm(p.aguaLarguraMinMm),
+      areaMin: mm(1) ** 2 * p.aguaAreaMinMm2,
+    },
+  };
+}
+
+function bilinear(v: Float32Array, nx: number, ny: number, fx: number, fy: number): number {
+  const cx = Math.min(nx - 1, Math.max(0, fx));
+  const cy = Math.min(ny - 1, Math.max(0, fy));
+  const x0 = Math.min(nx - 2, Math.floor(cx));
+  const y0 = Math.min(ny - 2, Math.floor(cy));
+  const ax = cx - x0;
+  const ay = cy - y0;
+  const i = y0 * nx + x0;
+  return (v[i] * (1 - ax) + v[i + 1] * ax) * (1 - ay) + (v[i + nx] * (1 - ax) + v[i + nx + 1] * ax) * ay;
+}
+
+export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: ParametrosModelo, dados?: DadosCamadas | null): ResultadoModelo {
   const caixa = caixaDaForma(forma);
   const { largura, altura } = dimensoesMetros(caixa);
   if (!(largura > 0 && altura > 0)) throw new Error('A área escolhida está vazia');
@@ -122,20 +173,60 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
   });
   const triangulosSuperficie = bloco.indices.length / 3;
 
-  const objetos: { delete(): void }[] = [];
-  const guardar = <T extends { delete(): void }>(o: T) => (objetos.push(o), o);
+  const objetos = new Set<{ delete(): void }>();
+  const guardar = <T extends { delete(): void }>(o: T) => (objetos.add(o), o);
+  // Limpeza antes de exportar: junta vértices a menos de 0,001 mm (o STL guarda
+  // float32 e solda vértices pela posição; vértices quase iguais virariam
+  // triângulos degenerados) e remove triângulos colineares das booleanas.
+  const tolerancia = real ? 1e-3 / mmPorMetroImpressao : 1e-3;
+  const limpa = (s: Solido) => {
+    const m = solidoParaMalha(guardar(s.simplify(tolerancia)));
+    separarVerticesCoincidentes(m, tolerancia / 10);
+    return m;
+  };
   try {
     const solidoBloco = guardar(malhaParaSolido(wasm, bloco));
     const secao = guardar(new wasm.CrossSection([contorno], 'NonZero'));
     const prisma = guardar(guardar(secao.extrude(bloco.alturaMax + 2)).translate(0, 0, -1));
-    const recortado = guardar(solidoBloco.intersect(prisma));
+    let recortado = guardar(solidoBloco.intersect(prisma));
     const status = recortado.status();
     if (status !== 'NoError') throw new Error(`Falha no recorte do contorno: ${status}`);
     if (recortado.isEmpty()) throw new Error('O recorte do contorno ficou vazio');
 
-    const malhaUnica = solidoParaMalha(recortado);
-    const { min, max } = caixaLimite(malhaUnica);
-    const zTopo = max[2];
+    const { min, max } = caixaLimite(solidoParaMalha(recortado));
+    const zTopoTerreno = max[2];
+
+    // ---- camadas do mapa (prédios, ruas, água) ----
+    let camadasGeradas: ResultadoCamadas | null = null;
+    if (dados && (dados.predios || dados.vias || dados.agua)) {
+      const proj = criarProjecao(caixa);
+      const alturas = alturasDaGrade(grade, { porMetroVertical: porMetro * exagero, zBase, altitudeMinima, achatarMar: p.achatarMar });
+      const W = grade.larguraM * porMetro;
+      const H = grade.alturaM * porMetro;
+      const mm = (v: number) => (real ? v / mmPorMetroImpressao : v);
+      camadasGeradas = gerarCamadas({
+        wasm,
+        projetar: (ll) => {
+          const [x, y] = proj.paraMetros(ll);
+          return [x * porMetro, y * porMetro];
+        },
+        contorno,
+        bloco,
+        alturaEm: (x, y) => bilinear(alturas, grade.nx, grade.ny, (x / W + 0.5) * (grade.nx - 1), (y / H + 0.5) * (grade.ny - 1)),
+        zTopo: zTopoTerreno,
+        zBase,
+        porMetro,
+        caixaGrade: { x0: -W / 2, y0: -H / 2, x1: W / 2, y1: H / 2 },
+        gradeTodaNoMar: grade.elev.every((e) => e <= 0),
+      }, dados, opcoesCamadas(p, mm, real, camadas));
+      for (const pc of camadasGeradas.pecas) guardar(pc.solido);
+      for (const c of camadasGeradas.cortes) guardar(c);
+      if (camadasGeradas.cortes.length) {
+        const uniaoCortes = guardar(wasm.Manifold.union(camadasGeradas.cortes));
+        recortado = guardar(recortado.subtract(uniaoCortes));
+      }
+    }
+    const zTopo = zTopoTerreno;
 
     // ---- cortes horizontais que definem as peças ----
     const cortes: { id: string; nome: string; cor: string; zMin: number; zMax: number }[] = [
@@ -157,24 +248,46 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
     }
 
     const partes: Parte[] = [];
+    const solidosPartes: Solido[] = [];
     for (const c of cortes) {
       let peca: Solido = recortado;
       if (Number.isFinite(c.zMin)) peca = guardar(peca.trimByPlane([0, 0, 1], c.zMin));
       if (Number.isFinite(c.zMax)) peca = guardar(peca.trimByPlane([0, 0, -1], -c.zMax));
       if (peca.isEmpty() || peca.volume() < 1e-9) continue;
+      solidosPartes.push(peca);
       partes.push({
-        id: c.id, nome: c.nome, cor: c.cor, malha: solidoParaMalha(peca),
+        id: c.id, nome: c.nome, cor: c.cor, malha: limpa(peca),
         zMin: Math.max(0, c.zMin), zMax: Math.min(zTopo, c.zMax),
       });
     }
+    for (const pc of camadasGeradas?.pecas ?? []) {
+      if (pc.solido.isEmpty()) continue;
+      solidosPartes.push(pc.solido);
+      const b = pc.solido.boundingBox();
+      partes.push({ id: pc.id, nome: pc.nome, cor: pc.cor, malha: limpa(pc.solido), zMin: b.min[2], zMax: b.max[2] });
+    }
+
+    // STL único: todas as peças fundidas num só sólido. As camadas só ENCOSTAM
+    // no terreno (face com face, inclusive nas paredes dos sulcos). O STL não
+    // guarda topologia: quem abre o arquivo junta vértices na mesma posição, e
+    // faces encostadas viram arestas com 4 triângulos. Por isso as camadas são
+    // deslocadas 0,001 mm numa direção oblíqua: cada contato vira sobreposição
+    // (fundida pela união) ou uma folga ínfima (sem vértices em comum).
+    const d = tolerancia;
+    const paraUniao = solidosPartes.map((s, i) =>
+      (['predios', 'ruas', 'agua'].includes(partes[i].id) ? guardar(s.translate(0.37 * d, 0.61 * d, -d)) : s));
+    const unico = paraUniao.length === 1 ? paraUniao[0] : guardar(wasm.Manifold.union(paraUniao));
+    const malhaUnica = limpa(unico);
+    const caixaFinal = caixaLimite(malhaUnica);
 
     return {
       partes,
       malhaUnica,
+      camadas: camadasGeradas ? { avisos: camadasGeradas.avisos, estatisticas: camadasGeradas.estatisticas } : null,
       unidade: real ? 'm' : 'mm',
       largura: max[0] - min[0],
       profundidade: max[1] - min[1],
-      alturaMax: zTopo,
+      alturaMax: caixaFinal.max[2],
       porMetro,
       escala: real ? 1 : 1000 / porMetro,
       exageroEfetivo: exagero,

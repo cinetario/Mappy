@@ -30,6 +30,9 @@ export function criarPrevia(container: HTMLElement) {
   cena.add(grupo);
   let grade: THREE.GridHelper | null = null;
   let aramado = false;
+  /** camadas ocultas pelo "olho" (prefixo do id da peça) */
+  const ocultas = new Set<string>();
+  const visivel = (id: string) => ![...ocultas].some((o) => id === o || id.startsWith(`${o}-`));
 
   const redimensionar = () => {
     const { clientWidth: w, clientHeight: h } = container;
@@ -51,23 +54,45 @@ export function criarPrevia(container: HTMLElement) {
      * Mostra as peças. `enquadrar` reposiciona a câmera (use quando a área muda).
      * Devolve o tamanho do quadrado da grade do chão.
      */
-    mostrar(pecas: { malha: Malha; cor: string }[], enquadrar = true): number {
+    mostrar(pecas: { id: string; malha: Malha; cor: string; opacidade?: number; arestas?: boolean }[], enquadrar = true): number {
       for (const filho of [...grupo.children]) {
-        const m = filho as THREE.Mesh;
-        m.geometry.dispose();
-        (m.material as THREE.Material).dispose();
-        grupo.remove(m);
+        filho.traverse((o) => {
+          const m = o as THREE.Mesh;
+          m.geometry?.dispose();
+          (m.material as THREE.Material | undefined)?.dispose();
+        });
+        grupo.remove(filho);
       }
       const caixa = new THREE.Box3();
-      for (const { malha, cor } of pecas) {
+      for (const { id, malha, cor, opacidade = 1, arestas } of pecas) {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute('position', new THREE.BufferAttribute(malha.posicoes, 3));
         geo.setIndex(new THREE.BufferAttribute(malha.indices, 1));
-        geo.computeVertexNormals();
+        // prédios e ruas: faces planas (arestas nítidas); terreno: sombreado suave
+        const plano = id === 'predios' || id === 'ruas';
+        if (plano) {
+          const solto = geo.toNonIndexed();
+          solto.computeVertexNormals();
+          geo.dispose();
+          geo.copy(solto);
+          solto.dispose();
+        } else {
+          geo.computeVertexNormals();
+        }
         geo.computeBoundingBox();
         caixa.union(geo.boundingBox!);
-        const material = new THREE.MeshStandardMaterial({ color: cor, roughness: 0.85, wireframe: aramado, flatShading: false });
-        grupo.add(new THREE.Mesh(geo, material));
+        const material = new THREE.MeshStandardMaterial({
+          color: cor, roughness: 0.85, wireframe: aramado,
+          transparent: opacidade < 1, opacity: opacidade, depthWrite: opacidade >= 1,
+        });
+        const mesh = new THREE.Mesh(geo, material);
+        mesh.name = id;
+        mesh.visible = visivel(id);
+        if (arestas) {
+          const linhas = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({ color: 0x3a3630 }));
+          mesh.add(linhas);
+        }
+        grupo.add(mesh);
       }
 
       // grade de referência no chão
@@ -103,6 +128,12 @@ export function criarPrevia(container: HTMLElement) {
     definirAramado(ligado: boolean) {
       aramado = ligado;
       for (const filho of grupo.children) ((filho as THREE.Mesh).material as THREE.MeshStandardMaterial).wireframe = ligado;
+    },
+    /** "olho" da camada: oculta só na visualização */
+    definirOculta(id: string, oculta: boolean) {
+      if (oculta) ocultas.add(id);
+      else ocultas.delete(id);
+      for (const filho of grupo.children) filho.visible = visivel(filho.name);
     },
   };
 }

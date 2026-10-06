@@ -1,8 +1,10 @@
 // Verifica se uma malha é um sólido fechado e bem orientado (manifold):
 // - cada aresta é compartilhada por exatamente 2 triângulos;
 // - os dois triângulos percorrem a aresta em sentidos opostos (nenhuma face invertida);
-// - não há triângulos degenerados (área zero);
+// - nenhum triângulo repete vértice;
 // - o volume é positivo (normais apontando para fora).
+// Triângulos de área zero com 3 vértices distintos ("agulhas" que as booleanas
+// às vezes deixam) não quebram a malha nem o fatiamento: viram só uma observação.
 import type { Malha } from './malha.ts';
 
 export interface ResultadoVerificacao {
@@ -12,7 +14,10 @@ export interface ResultadoVerificacao {
   arestasAbertas: number;
   /** arestas usadas por mais de 2 triângulos ou percorridas no mesmo sentido */
   arestasProblematicas: number;
+  /** triângulos de área zero (colineares): observação, não erro */
   degenerados: number;
+  /** triângulos que repetem vértice: erro de topologia */
+  repetidos: number;
   volumeMm3: number;
   erros: string[];
 }
@@ -22,6 +27,7 @@ export function verificarMalha(m: Malha): ResultadoVerificacao {
   const nT = m.indices.length / 3;
   const arestas = new Map<number, number>();
   let degenerados = 0;
+  let repetidos = 0;
   let volume = 0;
   const p = m.posicoes;
 
@@ -36,7 +42,8 @@ export function verificarMalha(m: Malha): ResultadoVerificacao {
     const ux = bx - ax, uy = by - ay, uz = bz - az;
     const vx = cx - ax, vy = cy - ay, vz = cz - az;
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-    if (a === b || b === c || a === c || Math.hypot(nx, ny, nz) < 1e-12) degenerados++;
+    if (a === b || b === c || a === c) repetidos++;
+    else if (Math.hypot(nx, ny, nz) < 1e-12) degenerados++;
     volume += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
     for (const [de, para] of [[a, b], [b, c], [c, a]]) {
       const chave = de * nV + para;
@@ -58,7 +65,7 @@ export function verificarMalha(m: Malha): ResultadoVerificacao {
   if (nT === 0) erros.push('A malha não tem triângulos');
   if (abertas > 0) erros.push(`${abertas} arestas abertas (a malha tem buracos)`);
   if (problematicas > 0) erros.push(`${problematicas} arestas com faces invertidas ou sobrepostas`);
-  if (degenerados > 0) erros.push(`${degenerados} triângulos degenerados (área zero)`);
+  if (repetidos > 0) erros.push(`${repetidos} triângulos com vértice repetido`);
   if (!(volume > 0)) erros.push('Volume não positivo (normais apontando para dentro)');
 
   return {
@@ -67,6 +74,7 @@ export function verificarMalha(m: Malha): ResultadoVerificacao {
     arestasAbertas: abertas,
     arestasProblematicas: problematicas,
     degenerados,
+    repetidos,
     volumeMm3: volume,
     erros,
   };

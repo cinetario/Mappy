@@ -2,6 +2,7 @@
 // Cada parâmetro é definido UMA vez aqui: padrão, limites e chave na URL.
 // O painel, a URL, os presets e o "Redefinir" partem desta definição.
 import type { Forma, LonLat } from './geo.ts';
+import { TIPOS_DESLIGADOS_PADRAO, escreverTiposDesligados, lerTiposDesligados } from './vias.ts';
 
 interface DefNumero {
   tipo: 'numero';
@@ -60,6 +61,45 @@ export const PARAMETROS = {
   // ----- Impressão -----
   alturaCamadaMm: { tipo: 'numero', url: 'hc', padrao: 0.2, min: 0.04, max: 0.6 },
   primeiraCamadaMm: { tipo: 'numero', url: 'h1', padrao: 0.2, min: 0.04, max: 0.8 },
+
+  // ===== Camadas =====
+  // ----- Prédios -----
+  /** auto = ligado até 100 km², desligado acima */
+  predios: opcao('p', ['auto', 'sim', 'nao'] as const, 'auto'),
+  prediosDetalhados: { tipo: 'booleano', url: 'pd', padrao: false },
+  prediosAlturaPadraoM: { tipo: 'numero', url: 'pa', padrao: 10, min: 2, max: 100 },
+  prediosExagero: { tipo: 'numero', url: 'pe', padrao: 1, min: 0.25, max: 5 },
+  prediosAleatorio: { tipo: 'numero', url: 'pr', padrao: 0, min: 0, max: 50, inteiro: true },
+  prediosIntegracao: opcao('pi', ['elevado', 'rebaixado'] as const, 'elevado'),
+  prediosProfundidadeMm: { tipo: 'numero', url: 'pp', padrao: 0.4, min: 0, max: 10 },
+  prediosDeslocamentoMm: { tipo: 'numero', url: 'po', padrao: 0, min: -10, max: 10 },
+  prediosCor: { ...cor('#e4ded3'), url: 'pc' },
+  prediosArestas: { tipo: 'booleano', url: 'pk', padrao: false },
+  // ----- Ruas -----
+  ruas: opcao('v', ['auto', 'sim', 'nao'] as const, 'auto'),
+  ruasModo: opcao('vm', ['superficie', 'extrudada'] as const, 'extrudada'),
+  ruasAlturaMm: { tipo: 'numero', url: 'vh', padrao: 0.4, min: 0.04, max: 10 },
+  ruasIntegracao: opcao('vi', ['elevada', 'rebaixada'] as const, 'elevada'),
+  ruasProfundidadeMm: { tipo: 'numero', url: 'vp', padrao: 0.4, min: 0.04, max: 10 },
+  ruasDeslocamentoMm: { tipo: 'numero', url: 'vo', padrao: 0, min: -5, max: 5 },
+  ruasCor: { ...cor('#5b5b5b'), url: 'vc' },
+  ruasEscalaLargura: { tipo: 'numero', url: 'vw', padrao: 1, min: 0.25, max: 5 },
+  ruasTiposDesligados: {
+    tipo: 'texto', url: 'vd', padrao: escreverTiposDesligados(TIPOS_DESLIGADOS_PADRAO),
+    validar: (v: string) => { const t = lerTiposDesligados(v); return t ? escreverTiposDesligados(t) : null; },
+  },
+  // ----- Água -----
+  agua: { tipo: 'booleano', url: 'w', padrao: true },
+  aguaModo: opcao('wm', ['superficie', 'extrudada'] as const, 'extrudada'),
+  aguaAlturaMm: { tipo: 'numero', url: 'wh', padrao: 0.4, min: 0.04, max: 10 },
+  aguaIntegracao: opcao('wi', ['elevada', 'rebaixada'] as const, 'rebaixada'),
+  aguaProfundidadeMm: { tipo: 'numero', url: 'wp', padrao: 0.6, min: 0.04, max: 10 },
+  aguaOpacidade: { tipo: 'numero', url: 'wo', padrao: 0.85, min: 0.1, max: 1 },
+  aguaCor: { ...cor('#3f7fc0'), url: 'wc' },
+  aguaRios: { tipo: 'booleano', url: 'wr', padrao: true },
+  aguaOcultarPequenos: { tipo: 'booleano', url: 'wq', padrao: true },
+  aguaLarguraMinMm: { tipo: 'numero', url: 'wl', padrao: 0.5, min: 0, max: 5 },
+  aguaAreaMinMm2: { tipo: 'numero', url: 'wa', padrao: 2, min: 0, max: 500 },
 } as const satisfies Record<string, Def>;
 
 export type NomeParametro = keyof typeof PARAMETROS;
@@ -113,18 +153,21 @@ export type NomePreset = 'soTerreno' | 'topografico' | 'impressao3d';
 export const PRESETS: Record<NomePreset, { rotulo: string; dica: string; params: Partial<Parametros> }> = {
   soTerreno: {
     rotulo: 'Só terreno',
-    dica: 'Relevo em uma cor, exagero leve',
-    params: { estilo: 'solido', exagero: 1.5, travarAltura: false },
+    dica: 'Relevo em uma cor, exagero leve, sem camadas do mapa',
+    params: { estilo: 'solido', exagero: 1.5, travarAltura: false, predios: 'nao', ruas: 'nao', agua: false },
   },
   topografico: {
     rotulo: 'Topográfico',
-    dica: 'Faixas de cor por altitude e relevo mais marcado',
-    params: { estilo: 'faixas', exagero: 2, travarAltura: false },
+    dica: 'Faixas de cor por altitude, relevo mais marcado, água e vias',
+    params: { estilo: 'faixas', exagero: 2, travarAltura: false, predios: 'nao', ruas: 'auto', agua: true },
   },
   impressao3d: {
     rotulo: 'Impressão 3D',
     dica: 'Cabe na Snapmaker U1, altura travada em 17 mm, alturas alinhadas às camadas',
-    params: { modo: 'impressao', tamanhoMm: 220, travarAltura: true, alturaTotalMm: 17, baseMm: 2, alturaCamadaMm: 0.2, primeiraCamadaMm: 0.2, simplificacaoMm: 0.05 },
+    params: {
+      modo: 'impressao', tamanhoMm: 220, travarAltura: true, alturaTotalMm: 17, baseMm: 2,
+      alturaCamadaMm: 0.2, primeiraCamadaMm: 0.2, simplificacaoMm: 0.05, predios: 'auto', ruas: 'auto', agua: true,
+    },
   },
 };
 

@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { Plugin } from 'vite';
 import { obterGradeCopernicus } from './copernicus.ts';
 import { PASTA_CACHE, buscarEndereco, ehFonteTile, obterTile, tipoDoTile } from './fontes.ts';
+import { ErroDividir, consultarOSM, ehGrupoOSM, type GrupoOSM } from './overpass.ts';
 
 export function apiLocal(): Plugin {
   return {
@@ -42,6 +43,22 @@ export function apiLocal(): Plugin {
             res.setHeader('X-Tiles-Faltando', `${g.tilesFaltando}/${g.tilesTotal}`);
             res.setHeader('X-Resolucao-M', g.resolucaoM.toFixed(2));
             res.end(Buffer.from(g.elev.buffer, g.elev.byteOffset, g.elev.byteLength));
+            return;
+          }
+          if (url.pathname === '/osm') {
+            const grupo = url.searchParams.get('grupo') ?? '';
+            const [s, w, n, e] = ['s', 'w', 'n', 'e'].map((k) => Number(url.searchParams.get(k)));
+            const ok = ehGrupoOSM(grupo) && [s, w, n, e].every(Number.isFinite) && n > s && e > w && n - s <= 0.5 && e - w <= 0.5;
+            if (!ok) throw new Error('Pedido inválido para o OpenStreetMap (bloco máximo de 0,5°)');
+            try {
+              const json = await consultarOSM(grupo as GrupoOSM, s, w, n, e);
+              res.setHeader('Content-Type', 'application/json; charset=utf-8');
+              res.end(json);
+            } catch (erro) {
+              if (!(erro instanceof ErroDividir)) throw erro;
+              res.statusCode = 504; // o cliente divide o bloco em 4 e tenta de novo
+              res.end(erro.message);
+            }
             return;
           }
           if (url.pathname === '/busca') {

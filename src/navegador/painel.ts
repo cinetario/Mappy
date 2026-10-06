@@ -8,6 +8,10 @@ export interface Contexto {
   params: Parametros;
   info: InfoModelo | null;
   partes: ParteGerada[] | null;
+  /** área escolhida em km² (null sem área) */
+  km2: number | null;
+  /** escala de impressão prevista (mm por metro real), mesmo antes de gerar */
+  mmPorMetro: number | null;
 }
 
 export type AoMudar = (nome: NomeParametro, valor: Valor) => void;
@@ -209,6 +213,64 @@ export function editorFaixas(aoMudar: AoMudar, o: Comum = {}): Controle {
     });
     adicionar.toggleAttribute('disabled', faixas.length >= MAX_FAIXAS);
   });
+}
+
+// ---------- sub-seção recolhível (ex.: "Avançado") ----------
+export function subsecao(titulo: string, controles: Controle[], o: Comum = {}): Controle {
+  const el = h('details', { class: 'subsecao' }, h('summary', {}, titulo), h('div', { class: 'conteudo' }, ...controles.map((c) => c.el)));
+  return comComum(el, o, (c) => {
+    for (const ctl of controles) ctl.atualizar(c);
+  });
+}
+
+// ---------- camada (cabeçalho com interruptor, contagem e "olho") ----------
+export interface OpcoesCamada {
+  id: string;
+  titulo: string;
+  /** estado efetivo (ligada?) */
+  ligada: (c: Contexto) => boolean;
+  /** texto ao lado do interruptor (ex.: "automático") */
+  observacao?: (c: Contexto) => string;
+  aoLigar: (ligar: boolean) => void;
+  contagem?: (c: Contexto) => string;
+  aoOcultar: (oculta: boolean) => void;
+}
+
+export function camada(o: OpcoesCamada, controles: Controle[]): Controle {
+  const entrada = h('input', { type: 'checkbox', role: 'switch', 'aria-label': `Ligar ${o.titulo}` }) as HTMLInputElement;
+  const obs = h('span', { class: 'observacao' });
+  const contagem = h('span', { class: 'contagem' });
+  const olho = h('button', { type: 'button', class: 'olho', 'aria-pressed': 'false', title: 'Ocultar só na visualização (continua no arquivo)' }, '👁');
+  let oculta = false;
+  entrada.addEventListener('change', () => o.aoLigar(entrada.checked));
+  olho.addEventListener('click', (e) => {
+    e.preventDefault();
+    oculta = !oculta;
+    olho.setAttribute('aria-pressed', String(oculta));
+    olho.classList.toggle('oculta', oculta);
+    o.aoOcultar(oculta);
+  });
+  const conteudo = h('div', { class: 'conteudo' }, ...controles.map((c) => c.el));
+  const el = h('details', { class: 'secao camada', 'data-camada': o.id },
+    h('summary', {}, entrada, h('span', { class: 'titulo' }, o.titulo, obs), contagem, olho),
+    conteudo);
+  el.addEventListener('toggle', () => {
+    if (!(el as HTMLDetailsElement).open) return;
+    for (const outra of el.parentElement?.querySelectorAll<HTMLDetailsElement>('details.secao[open]') ?? []) {
+      if (outra !== el) outra.open = false;
+    }
+  });
+  return {
+    el,
+    atualizar(c) {
+      const ligada = o.ligada(c);
+      entrada.checked = ligada;
+      el.classList.toggle('desligada', !ligada);
+      obs.textContent = o.observacao?.(c) ?? '';
+      contagem.textContent = o.contagem?.(c) ?? '';
+      for (const ctl of controles) ctl.atualizar(c);
+    },
+  };
 }
 
 // ---------- seções recolhíveis (uma aberta por vez) ----------

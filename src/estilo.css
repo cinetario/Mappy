@@ -121,6 +121,25 @@ input:disabled { opacity: 0.5; }
 .informacao td { padding: 1px 0; }
 .informacao td:last-child { text-align: right; color: var(--texto); }
 
+/* ---------- camadas ---------- */
+details.camada summary { align-items: center; }
+details.camada summary::before { order: -2; }
+details.camada summary input[type='checkbox'] { order: -1; }
+details.camada summary .titulo { flex: 1; display: flex; flex-direction: column; line-height: 1.2; }
+details.camada summary .observacao { font-weight: 400; font-size: 11px; color: var(--suave); }
+details.camada summary .contagem { font-weight: 400; font-size: 12px; color: var(--suave); }
+details.camada.desligada summary .titulo { color: var(--suave); }
+button.olho { border: 0; background: transparent; padding: 2px 6px; font-size: 14px; line-height: 1; opacity: 0.8; }
+button.olho.oculta { opacity: 0.3; text-decoration: line-through; }
+details.subsecao { border: 1px solid var(--borda); border-radius: 6px; padding: 0 8px; }
+details.subsecao summary { cursor: pointer; font-size: 12px; padding: 6px 0; color: var(--suave); }
+details.subsecao .conteudo { padding: 4px 0 10px; display: flex; flex-direction: column; gap: 10px; }
+.tabela-vias { border-collapse: collapse; width: 100%; font-size: 12px; }
+.tabela-vias th { text-align: left; font-weight: 600; color: var(--suave); padding: 2px 4px; }
+.tabela-vias td { padding: 2px 4px; }
+.tabela-vias td:nth-child(3), .tabela-vias td:nth-child(4), .tabela-vias th:nth-child(3), .tabela-vias th:nth-child(4) { text-align: right; white-space: nowrap; }
+.aviso-texto { color: var(--aviso); font-weight: 600; }
+
 .faixas { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .faixa { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .faixa .de { width: 44px; color: var(--suave); text-align: right; }

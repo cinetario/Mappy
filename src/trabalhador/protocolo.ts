@@ -1,4 +1,5 @@
 // Mensagens trocadas entre a página e o Web Worker de geração.
+import type { EstatisticasCamadas } from '../core/camadas.ts';
 import type { Parametros } from '../core/estado.ts';
 import type { Forma } from '../core/geo.ts';
 import type { ResultadoVerificacao } from '../core/verificacao.ts';
@@ -7,6 +8,16 @@ export interface PedidoGeracao {
   id: number;
   forma: Forma;
   params: Parametros;
+  /** o usuário já confirmou que quer gerar mesmo com muitos elementos */
+  confirmado?: boolean;
+}
+
+/** Quantos elementos do OSM entram em cada camada (null = camada desligada). */
+export interface Contagem {
+  predios: number | null;
+  vias: number | null;
+  agua: number | null;
+  cobertura: number | null;
 }
 
 export interface ParteGerada {
@@ -38,6 +49,9 @@ export interface InfoModelo {
   zoomEfetivo: number;
   resolucaoM: number;
   aviso?: string;
+  contagem: Contagem;
+  estatisticasCamadas: EstatisticasCamadas | null;
+  avisosCamadas: string[];
 }
 
 export interface ResultadoGeracao {
@@ -51,4 +65,5 @@ export interface ResultadoGeracao {
 export type MensagemDoWorker =
   | { tipo: 'progresso'; id: number; etapa: string; fracao: number }
   | { tipo: 'pronto'; id: number; resultado: ResultadoGeracao }
+  | { tipo: 'confirmar'; id: number; contagem: Contagem }
   | { tipo: 'erro'; id: number; mensagem: string };

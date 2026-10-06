@@ -7,9 +7,10 @@ import {
 import { areaM2, caixaDaForma, dimensoesMetros, formatarCoordenadas, poligonoSeCruza, type Forma } from './core/geo.ts';
 import {
   AREA_GRANDE_KM2, AREA_LIVRE_KM2, AREA_MAXIMA_KM2, LARGURA_MINIMA_MM, LARGURA_RUA_LOCAL_M,
-  classificarArea, ladoMaximoSemEngrossarM, larguraImpressa,
+  camadaUrbanaAtiva, classificarArea, ladoMaximoSemEngrossarM, larguraImpressa,
 } from './core/limites.ts';
 import { escreverStl } from './core/stl.ts';
+import { montarAbaCamadas } from './navegador/aba-camadas.ts';
 import { montarAbaModelo } from './navegador/aba-modelo.ts';
 import { criarDesenho, type Ferramenta } from './navegador/desenho.ts';
 import { criarGerador } from './navegador/gerador.ts';
@@ -17,12 +18,13 @@ import { criarMapa, enquadrar } from './navegador/mapa.ts';
 import type { Contexto } from './navegador/painel.ts';
 import { criarPrevia } from './navegador/previa.ts';
 import { area as fmtArea, decimal, distancia, inteiro, medidaModelo, type Sistema } from './navegador/unidades.ts';
-import type { ResultadoGeracao } from './trabalhador/protocolo.ts';
+import type { Contagem, ResultadoGeracao } from './trabalhador/protocolo.ts';
+import { TIPOS_SO_PRINCIPAIS, escreverTiposDesligados } from './core/vias.ts';
 
 const MESA_IMPRESSORA_MM = 270; // volume útil da Snapmaker U1
 const FILAMENTOS = 4; // Snapmaker U1
 /** parâmetros que só mudam a exibição (não precisam gerar de novo) */
-const SO_EXIBICAO = new Set<NomeParametro>(['unidades']);
+const SO_EXIBICAO = new Set<NomeParametro>(['unidades', 'aguaOpacidade', 'prediosArestas']);
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const botao = (id: string) => $<HTMLButtonElement>(id);
@@ -33,7 +35,21 @@ let resultado: ResultadoGeracao | null = null;
 let modeloDesatualizado = false;
 
 const sistema = () => estado.params.unidades as Sistema;
-const contexto = (): Contexto => ({ params: estado.params, info: resultado?.info ?? null, partes: resultado?.partes ?? null });
+const contexto = (): Contexto => {
+  const f = estado.forma;
+  let mmPorMetro: number | null = null;
+  if (f) {
+    const { largura, altura } = dimensoesMetros(caixaDaForma(f));
+    mmPorMetro = estado.params.tamanhoMm / Math.max(largura, altura);
+  }
+  return {
+    params: estado.params,
+    info: resultado?.info ?? null,
+    partes: resultado?.partes ?? null,
+    km2: f ? areaM2(f) / 1e6 : null,
+    mmPorMetro,
+  };
+};
 
 const previa = criarPrevia($('previa'));
 const gerador = criarGerador();
@@ -42,6 +58,7 @@ const desenho = criarDesenho(mapa, {
   aoMudar(forma, final) {
     estado.forma = forma;
     atualizarArea();
+    if (final) atualizarPainel();
     if (final) {
       salvarNaUrl();
       if (resultado) agendarGeracao(400);
@@ -57,6 +74,10 @@ if (estado.forma) {
 
 // ---------- painel ----------
 const abaModelo = montarAbaModelo($('aba-modelo'), mudarParametro);
+const abaCamadas = montarAbaCamadas($('aba-camadas'), {
+  aoMudar: mudarParametro,
+  aoOcultar: (id, oculta) => previa.definirOculta(id, oculta),
+});
 
 function mudarParametro(nome: NomeParametro, bruto: Valor) {
   const novo = validarParametro(nome, bruto);
@@ -73,11 +94,16 @@ function aposMudarParametros(mudaramGeometria: NomeParametro[]) {
   atualizarArea();
   salvarNaUrl();
   if (resultado && mudaramGeometria.length) agendarGeracao(mudaramGeometria.includes('resolucao') ? 500 : 150);
-  if (resultado && !mudaramGeometria.length) mostrarCaixaInfo();
+  if (resultado && !mudaramGeometria.length) {
+    mostrarCaixaInfo();
+    mostrarPrevia(false);
+  }
 }
 
 function atualizarPainel() {
-  abaModelo.atualizar(contexto());
+  const c = contexto();
+  abaModelo.atualizar(c);
+  abaCamadas.atualizar(c);
   atualizarCores();
   atualizarCreditos();
 }
@@ -246,7 +272,13 @@ function descreverForma(f: Forma, largura: number, altura: number, s: Sistema) {
 // ---------- cores (limite de filamentos) e créditos ----------
 function coresPrevistas(p: Parametros): string[] {
   const terreno = p.estilo === 'faixas' ? (lerFaixas(p.faixas) ?? []).map((f) => f.cor) : [p.corTerreno];
-  return [...new Set([p.corLaterais, ...terreno])];
+  const km2 = estado.forma ? areaM2(estado.forma) / 1e6 : 0;
+  const camadas = [
+    camadaUrbanaAtiva(p.predios, km2) ? p.prediosCor : null,
+    camadaUrbanaAtiva(p.ruas, km2) ? p.ruasCor : null,
+    p.agua ? p.aguaCor : null,
+  ].filter((c): c is string => !!c);
+  return [...new Set([p.corLaterais, ...terreno, ...camadas])];
 }
 
 function atualizarCores() {
@@ -255,7 +287,7 @@ function atualizarCores() {
   const excesso = cores.length > FILAMENTOS;
   $('cores').innerHTML = `Cores: <strong class="${excesso ? 'erro' : ''}">${cores.length}/${FILAMENTOS}</strong> ${amostras}`
     + (excesso
-      ? `<div class="aviso">A Snapmaker U1 tem ${FILAMENTOS} filamentos. Use a mesma cor em mais de uma peça (ex.: base igual à primeira faixa) ou reduza as faixas.</div>`
+      ? `<div class="aviso">A Snapmaker U1 tem ${FILAMENTOS} filamentos. Use a mesma cor em mais de uma peça (ex.: base igual à primeira faixa, ruas iguais aos prédios) ou reduza faixas e camadas.</div>`
       : '');
 }
 
@@ -279,7 +311,7 @@ function agendarGeracao(ms: number) {
 let gerando = false;
 let chaveEnquadrada = '';
 
-async function gerar() {
+async function gerar(confirmado = false) {
   const forma = estado.forma;
   if (!forma) return;
   if (gerando) {
@@ -293,15 +325,20 @@ async function gerar() {
   barra.hidden = false;
   try {
     const params = { ...estado.params };
-    const r = await gerador.gerar(forma, params, (etapa, fracao) => {
+    const resposta = await gerador.gerar(forma, params, confirmado, (etapa, fracao) => {
       status(`${etapa}…`);
       $('progresso-barra').style.width = `${Math.round(fracao * 100)}%`;
     });
+    if (resposta.tipo === 'confirmar') {
+      pedirConfirmacao(resposta.contagem);
+      return;
+    }
+    const r = resposta.resultado;
     resultado = r;
 
     // reposiciona a câmera só quando a área, o tamanho ou o modo mudam
     const chave = `${JSON.stringify(forma)}|${params.tamanhoMm}|${params.modo}`;
-    quadradoGrade = previa.mostrar(r.partes.map((p) => ({ malha: p, cor: p.cor })), chave !== chaveEnquadrada);
+    mostrarPrevia(chave !== chaveEnquadrada);
     chaveEnquadrada = chave;
     $('previa-vazia').hidden = true;
     botao('btn-aramado').hidden = false;
@@ -314,6 +351,7 @@ async function gerar() {
       avisos.push(`Altura de ${inteiro(r.info.alturaMax)} mm passa do limite de ${MESA_IMPRESSORA_MM} mm da impressora. Reduza o exagero ou o tamanho.`);
     }
     if (r.info.aviso) avisos.push(r.info.aviso);
+    avisos.push(...r.info.avisosCamadas);
     status(
       (v.valida && ruins.length === 0
         ? `<span class="ok">✓ Malha fechada e válida</span> · ${r.partes.length} peças, todas manifold`
@@ -332,6 +370,40 @@ async function gerar() {
 }
 
 let quadradoGrade = 10;
+
+function mostrarPrevia(enquadrar: boolean) {
+  if (!resultado) return;
+  const p = estado.params;
+  quadradoGrade = previa.mostrar(resultado.partes.map((x) => ({
+    id: x.id,
+    malha: x,
+    cor: x.cor,
+    opacidade: x.id === 'agua' ? p.aguaOpacidade : 1,
+    arestas: x.id === 'predios' && p.prediosArestas,
+  })), enquadrar);
+}
+
+/** Área com muitos elementos: mostra a contagem e deixa escolher. */
+function pedirConfirmacao(c: Contagem) {
+  const itens = [
+    c.predios != null ? `${inteiro(c.predios)} prédios` : null,
+    c.vias != null ? `${inteiro(c.vias)} ruas` : null,
+    c.agua != null ? `${inteiro(c.agua)} corpos d'água` : null,
+    c.cobertura != null ? `${inteiro(c.cobertura)} áreas de cobertura do solo` : null,
+  ].filter(Boolean);
+  status(`<div class="aviso"><strong>Esta área tem muitos elementos:</strong> ${itens.join(', ')}.
+    Gerar pode levar vários minutos e o arquivo fica pesado. Sugestão: desligue camadas
+    ou use "Só vias principais" na aba Camadas.</div>
+    <div class="linha" style="margin-top:8px">
+      <button type="button" id="conf-gerar" class="principal">Gerar mesmo assim</button>
+      ${c.predios != null ? '<button type="button" id="conf-sem-predios" class="secundario">Desligar prédios</button>' : ''}
+      ${c.vias != null ? '<button type="button" id="conf-principais" class="secundario">Só vias principais</button>' : ''}
+    </div>`);
+  $('conf-gerar').addEventListener('click', () => gerar(true));
+  document.getElementById('conf-sem-predios')?.addEventListener('click', () => mudarParametro('predios', 'nao'));
+  document.getElementById('conf-principais')?.addEventListener('click', () =>
+    mudarParametro('ruasTiposDesligados', escreverTiposDesligados(TIPOS_SO_PRINCIPAIS)));
+}
 
 function mostrarCaixaInfo() {
   if (!resultado) return;

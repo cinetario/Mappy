@@ -123,7 +123,8 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
         if (!c.info || !c.partes) return 'Gere o modelo para ver as estatísticas.';
         const tri = c.partes.reduce((s, p) => s + p.indices.length / 3, 0);
         const verts = c.partes.reduce((s, p) => s + p.posicoes.length / 3, 0);
-        const terreno = c.partes.filter((p) => p.id !== 'base').length;
+        const terreno = c.partes.filter((p) => p.id === 'terreno' || p.id.startsWith('faixa-')).length;
+        const camadas = c.partes.filter((p) => ['predios', 'ruas', 'agua'].includes(p.id));
         const stlPecas = c.partes.reduce((s, p) => s + 84 + 50 * (p.indices.length / 3), 0);
         // 3MF: XML com vértices e triângulos, compactado em zip (~30%)
         const tmf = (verts * 60 + tri * 55) * 0.3;
@@ -132,6 +133,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
           <tr><td>Triângulos (todas as peças)</td><td>${inteiro(tri)}</td></tr>
           <tr><td>Objetos: Base</td><td>1</td></tr>
           <tr><td>Objetos: Terreno</td><td>${terreno}</td></tr>
+          ${camadas.map((p) => `<tr><td>Objetos: ${p.nome}</td><td>1 (${inteiro(p.indices.length / 3)} triângulos)</td></tr>`).join('')}
           <tr><td>Cores</td><td>${cores}</td></tr>
           <tr><td>STL único</td><td>≈ ${bytes(stlPecas - 84 * (c.partes.length - 1))}</td></tr>
           <tr><td>STL por peça (total)</td><td>≈ ${bytes(stlPecas)}</td></tr>
