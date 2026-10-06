@@ -38,7 +38,7 @@ export interface Via extends LinhaOSM {
   tipo: TipoVia;
 }
 
-export type GrupoOSM = 'predios' | 'vias' | 'agua';
+export type { GrupoOSM } from './categorias-osm.ts';
 
 // ---------- conversões ----------
 const paraLonLat = (g: Ponto[] | undefined): LonLat[] =>

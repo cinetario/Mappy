@@ -1,5 +1,6 @@
 // Mensagens trocadas entre a página e o Web Worker de geração.
 import type { EstatisticasCamadas } from '../core/camadas.ts';
+import type { GrupoOSM } from '../core/categorias-osm.ts';
 import type { Parametros } from '../core/estado.ts';
 import type { Forma } from '../core/geo.ts';
 import type { ResultadoVerificacao } from '../core/verificacao.ts';
@@ -17,7 +18,7 @@ export type MensagemParaWorker = PedidoGeracao | { tipo: 'cancelar'; id: number 
 
 /** Pedaços da área cujo download do OSM falhou (o modelo foi gerado sem eles). */
 export interface BlocosFaltando {
-  grupo: 'predios' | 'vias' | 'agua';
+  grupo: GrupoOSM;
   nome: string;
   blocos: { s: number; w: number; n: number; e: number }[];
 }
@@ -63,6 +64,8 @@ export interface InfoModelo {
   estatisticasCamadas: EstatisticasCamadas | null;
   avisosCamadas: string[];
   faltando: BlocosFaltando[];
+  /** de onde vieram os dados do OSM (null = nenhuma camada do OSM ligada) */
+  fonteOsm: 'local' | 'overpass' | null;
 }
 
 export interface ResultadoGeracao {

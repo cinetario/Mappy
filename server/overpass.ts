@@ -6,12 +6,21 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { PASTA_CACHE, USER_AGENT, gravar } from './fontes.ts';
 
-export type GrupoOSM = 'predios' | 'vias' | 'agua';
+import type { GrupoOSM } from '../src/core/categorias-osm.ts';
+export type { GrupoOSM };
+
+const COB_LANDUSE = 'forest|grass|meadow|village_green|recreation_ground|cemetery|farmland|orchard|vineyard|farmyard|plant_nursery|allotments|greenhouse_horticulture|residential|commercial|industrial|retail|construction|railway';
+const COB_NATURAL = 'wood|grassland|scrub|heath|wetland|sand|beach|dune|glacier|bare_rock|scree|shingle|rock|stone';
+const COB_LEISURE = 'park|garden|golf_course';
 
 const CONSULTAS: Record<GrupoOSM, string> = {
   predios: `(way["building"];relation["building"]["type"="multipolygon"];way["building:part"];relation["building:part"]["type"="multipolygon"];);`,
   vias: `(way["highway"];way["railway"~"^(rail|light_rail|tram|subway|narrow_gauge|monorail|funicular)$"];way["route"="ferry"];);`,
   agua: `(way["natural"="water"];relation["natural"="water"];way["waterway"~"^(riverbank|dock|river|stream|canal)$"];relation["waterway"="riverbank"];way["landuse"~"^(reservoir|basin)$"];relation["landuse"~"^(reservoir|basin)$"];way["natural"="coastline"];);`,
+  cobertura: `(way["landuse"~"^(${COB_LANDUSE})$"];relation["landuse"~"^(${COB_LANDUSE})$"]["type"="multipolygon"];`
+    + `way["natural"~"^(${COB_NATURAL})$"];relation["natural"~"^(${COB_NATURAL})$"]["type"="multipolygon"];`
+    + `way["leisure"~"^(${COB_LEISURE})$"];relation["leisure"~"^(${COB_LEISURE})$"]["type"="multipolygon"];);`,
+  arvores: `(node["natural"="tree"];way["natural"="tree_row"];);`,
 };
 
 /** Servidores Overpass públicos (o principal e espelhos). */

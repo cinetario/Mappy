@@ -3,6 +3,7 @@
 // quando o estado muda (preset, URL colada, "Redefinir"…).
 import { PARAMETROS, escreverFaixas, lerFaixas, MAX_FAIXAS, type NomeParametro, type Parametros, type Valor } from '../core/estado.ts';
 import type { InfoModelo, ParteGerada } from '../trabalhador/protocolo.ts';
+import type { InfoIndiceLocal } from './osm-cliente.ts';
 
 export interface Contexto {
   params: Parametros;
@@ -12,6 +13,8 @@ export interface Contexto {
   km2: number | null;
   /** escala de impressão prevista (mm por metro real), mesmo antes de gerar */
   mmPorMetro: number | null;
+  /** índice local do OSM (null = ainda não consultado) */
+  osmLocal: InfoIndiceLocal | null;
 }
 
 export type AoMudar = (nome: NomeParametro, valor: Valor) => void;

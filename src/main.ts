@@ -14,6 +14,7 @@ import { montarAbaCamadas } from './navegador/aba-camadas.ts';
 import { montarAbaModelo } from './navegador/aba-modelo.ts';
 import { criarDesenho, type Ferramenta } from './navegador/desenho.ts';
 import { GeracaoCancelada, criarGerador } from './navegador/gerador.ts';
+import { obterInfoIndiceLocal, type InfoIndiceLocal } from './navegador/osm-cliente.ts';
 import { criarMapa, enquadrar, mostrarFaltando } from './navegador/mapa.ts';
 import type { Contexto } from './navegador/painel.ts';
 import { criarPrevia } from './navegador/previa.ts';
@@ -33,6 +34,12 @@ const botao = (id: string) => $<HTMLButtonElement>(id);
 const estado: Estado = urlParaEstado(location.hash);
 let resultado: ResultadoGeracao | null = null;
 let modeloDesatualizado = false;
+/** situação do arquivo local do OSM (consultada ao abrir e após cada geração) */
+let osmLocal: InfoIndiceLocal | null = null;
+const atualizarOsmLocal = () => obterInfoIndiceLocal().then((i) => {
+  osmLocal = i;
+  atualizarPainel();
+});
 
 const sistema = () => estado.params.unidades as Sistema;
 const contexto = (): Contexto => {
@@ -48,6 +55,7 @@ const contexto = (): Contexto => {
     partes: resultado?.partes ?? null,
     km2: f ? areaM2(f) / 1e6 : null,
     mmPorMetro,
+    osmLocal,
   };
 };
 
@@ -362,6 +370,7 @@ async function gerar(confirmado = false) {
     );
     botao('btn-stl').disabled = !v.valida;
     atualizarPainel();
+    void atualizarOsmLocal();
   } catch (erro) {
     if (erro instanceof GeracaoCancelada) {
       modeloDesatualizado = false; // cancelou: não recomeça sozinho
@@ -488,6 +497,7 @@ function baixar(blob: Blob, nome: string) {
 
 // ---------- início ----------
 atualizarPainel();
+void atualizarOsmLocal();
 atualizarArea();
 // link com área: gera o modelo ao abrir a página (os dados vêm do cache)
 if (estado.forma) agendarGeracao(0);

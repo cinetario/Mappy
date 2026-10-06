@@ -44,6 +44,34 @@ Isso baixa as bibliotecas (MapLibre, Three.js, manifold-3d…) para a pasta `nod
 > ou libere uma vez com:
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
+### 1.3 Dados do OpenStreetMap no seu PC (recomendado)
+
+Prédios, ruas, água, cobertura do solo e árvores podem vir de um **arquivo
+local**, sem depender do Overpass (que vive sobrecarregado).
+
+1. Baixe o extrato da sua região na Geofabrik. Para o Sudeste:
+   https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf (~820 MB).
+   Outras regiões: download.geofabrik.de/south-america/brazil.html
+2. Salve o arquivo, **sem renomear**, em:
+   `C:\caminho\para\Mappy\dados-osm\sudeste-latest.osm.pbf`
+   (pode colocar mais de um `.osm.pbf` nessa pasta; todos são importados).
+3. Rode:
+   ```powershell
+   npm run importar-osm
+   ```
+   Leva ~5 minutos para a Sudeste e gera `dados-osm\indice-osm.sqlite`
+   (alguns GB). Dá para rodar com o app aberto; depois aperte F5.
+
+**Para atualizar** os dados: baixe o arquivo novo (mesmo nome, por cima do
+antigo) e rode `npm run importar-osm` de novo. A aba **Camadas** mostra a data
+dos dados e quando foram importados.
+
+Na aba Camadas, **Fonte dos dados OSM** escolhe entre *Arquivo local* (padrão)
+e *Overpass (online)*. Se a área desenhada ficar fora do arquivo importado (ex.:
+outro estado), o app usa o Overpass automaticamente e avisa.
+
+A pasta `dados-osm\` não vai para o Git.
+
 ---
 
 ## 2. Rodando o app
@@ -195,6 +223,7 @@ Outros comandos:
 | `npm test` | Roda os testes automáticos (inclusive o de malha manifold) |
 | `npm run exemplo` | Gera um STL do Pão de Açúcar em `saida\` sem abrir o navegador. Aceita `-- circulo`, `-- hexagono` ou pedaços da URL do app separados por **espaço** (o Windows não aceita `&` aqui), ex.: `npm run exemplo -- a=c:-43.16,-22.95,1500 t=120 f=copernicus` |
 | `npm run typecheck` | Confere os tipos do TypeScript |
+| `npm run importar-osm` | Importa os `.osm.pbf` de `dados-osm\` para o índice local |
 
 ## 6. Dados, cache e limites
 
@@ -233,6 +262,13 @@ Outros comandos:
   - acima de 100 km²: prédios e ruas ficam desligados por padrão.
 - **Largura da rua local:** o painel da área mostra quanto uma rua de 4 m mede
   impressa. Abaixo de 0,8 mm (2 linhas do bico de 0,4 mm), ela é engrossada.
+- **Mapa de fundo:** estilo, tiles, fontes e ícones da OpenFreeMap passam pelo
+  servidor local e ficam em `cache\mapa\`. Recarregar a página não baixa de
+  novo, e áreas já vistas aparecem mesmo sem internet. Os tiles nunca expiram
+  (o endereço já tem a versão); o estilo é renovado uma vez por dia.
+- **Arquivo local do OSM:** o app usa o arquivo só se ele tiver dados para
+  **todos** os blocos da área. A cobertura é registrada na importação; o mar
+  até ~9 km da costa conta como coberto.
 - **OpenStreetMap (Overpass):**
   - A área é baixada em blocos de 0,04° (~4 km), de uma grade fixa. Ajustar a
     área reaproveita o cache em `cache\osm\`.

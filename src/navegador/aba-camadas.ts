@@ -185,7 +185,10 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
     return 'Dados do OpenStreetMap, baixados uma vez e guardados em cache.';
   });
 
-  const controles = [intro, avisos, predios, ruas, agua];
+  const fonte = opcoes('fonteOsm', 'Fonte dos dados OSM', [['local', 'Arquivo local'], ['overpass', 'Overpass (online)']], aoMudar);
+  const infoFonte = informacao((c) => textoFonteOsm(c));
+
+  const controles = [fonte, infoFonte, intro, avisos, predios, ruas, agua];
   for (const c of controles) container.append(c.el);
   return {
     atualizar(c: Contexto) {
@@ -193,6 +196,34 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
       tabelaVias.atualizar(c);
     },
   };
+}
+
+const data = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : 'data desconhecida');
+const milhoes = (n: number | undefined) => (n === undefined ? '0' : n >= 1e6 ? `${decimal(n / 1e6, 1)} mi` : inteiro(n));
+
+/** Situação da fonte local e como instalar/atualizar. */
+function textoFonteOsm(c: Contexto): string {
+  const info = c.osmLocal;
+  const comando = '<code>npm run importar-osm</code>';
+  const pasta = info ? `<code>${info.pasta}\\</code>` : 'a pasta <code>dados-osm</code> do projeto';
+  const usado = c.info?.fonteOsm
+    ? `<br>Último modelo: dados ${c.info.fonteOsm === 'local' ? '<strong>do arquivo local</strong>' : 'do <strong>Overpass</strong>'}.`
+    : '';
+  if (info?.disponivel && !info.desatualizado) {
+    const arquivos = info.arquivos.map((a) => `<strong>${a.nome}</strong> (dados de ${data(a.dataDados)})`).join(', ');
+    const k = info.contagens;
+    return `Arquivo local: ${arquivos}, importado em ${data(info.dataImportacao)}.
+      <br>${milhoes(k.predios)} prédios · ${milhoes(k.vias)} vias · ${milhoes(k.agua)} água · ${milhoes(k.cobertura)} cobertura · ${milhoes(k.arvores)} árvores.${usado}
+      <br><strong>Para atualizar:</strong> baixe o arquivo novo da Geofabrik (mesmo nome) para ${pasta} e rode ${comando} (≈ 5 min para a Sudeste). Depois, aperte F5.
+      Áreas fora do arquivo usam o Overpass.`;
+  }
+  const passos = `<br><strong>Para usar sem internet:</strong>
+    <br>1. Baixe o extrato da sua região, por exemplo <code>sudeste-latest.osm.pbf</code> em download.geofabrik.de/south-america/brazil.html
+    <br>2. Salve em ${pasta}
+    <br>3. No PowerShell, na pasta do projeto: ${comando} (≈ 5 min)
+    <br>4. Aperte F5.`;
+  if (info?.desatualizado) return `O índice local é de uma versão antiga do app: rode ${comando} de novo.${usado}`;
+  return `Nenhum arquivo local importado: o app usa o Overpass (online).${passos}${usado}`;
 }
 
 const camadas = (c: Contexto) => ({ h: c.params.alturaCamadaMm, h1: c.params.primeiraCamadaMm });

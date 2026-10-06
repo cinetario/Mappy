@@ -9,13 +9,15 @@
     "test": "vitest run",
     "verificar": "tsx scripts/verificar-stl.ts",
     "exemplo": "tsx scripts/gerar-exemplo.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "importar-osm": "tsx scripts/importar-osm.ts"
   },
   "dependencies": {
     "delatin": "^0.2.0",
     "geotiff": "^3.0.5",
     "manifold-3d": "^3.5.4",
     "maplibre-gl": "^6.12.0",
+    "pbf": "^5.1.2",
     "three": "^0.186.1"
   },
   "devDependencies": {

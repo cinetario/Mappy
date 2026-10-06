@@ -16,6 +16,10 @@ export function criarMapa(container: HTMLElement) {
     center: [-46.6333, -23.5505],
     zoom: 11,
     attributionControl: { compact: false },
+    // tudo da OpenFreeMap passa pelo servidor local, que guarda em cache/mapa/
+    transformRequest: (url) => (url.startsWith('https://tiles.openfreemap.org/')
+      ? { url: `${location.origin}/api/mapa?u=${encodeURIComponent(url)}` }
+      : undefined),
   });
   mapa.addControl(new NavigationControl({ showCompass: false }), 'top-right');
   mapa.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left');

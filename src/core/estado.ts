@@ -63,6 +63,8 @@ export const PARAMETROS = {
   primeiraCamadaMm: { tipo: 'numero', url: 'h1', padrao: 0.2, min: 0.04, max: 0.8 },
 
   // ===== Camadas =====
+  /** de onde vêm os dados do OSM; "local" cai para o Overpass se não houver arquivo para a área */
+  fonteOsm: opcao('os', ['local', 'overpass'] as const, 'local'),
   // ----- Prédios -----
   /** auto = ligado até 100 km², desligado acima */
   predios: opcao('p', ['auto', 'sim', 'nao'] as const, 'auto'),

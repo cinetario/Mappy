@@ -5,6 +5,8 @@ import path from 'node:path';
 import type { Plugin } from 'vite';
 import { obterGradeCopernicus } from './copernicus.ts';
 import { PASTA_CACHE, buscarEndereco, ehFonteTile, obterTile, tipoDoTile } from './fontes.ts';
+import { consultarIndice, indiceCobre, infoIndice } from './indice-osm.ts';
+import { obterRecursoMapa, urlPermitida } from './mapa-fundo.ts';
 import { FalhaOverpass, SERVIDORES, consultarOSM, ehGrupoOSM, type GrupoOSM } from './overpass.ts';
 
 export function apiLocal(): Plugin {
@@ -50,6 +52,12 @@ export function apiLocal(): Plugin {
             const [s, w, n, e] = ['s', 'w', 'n', 'e'].map((k) => Number(url.searchParams.get(k)));
             const ok = ehGrupoOSM(grupo) && [s, w, n, e].every(Number.isFinite) && n > s && e > w && n - s <= 0.5 && e - w <= 0.5;
             if (!ok) throw new Error('Pedido inválido para o OpenStreetMap (bloco máximo de 0,5°)');
+            // fonte local: índice SQLite gerado por `npm run importar-osm` (sem internet)
+            if (url.searchParams.get('fonte') === 'local') {
+              res.setHeader('Content-Type', 'application/json; charset=utf-8');
+              res.end(consultarIndice(grupo as GrupoOSM, s, w, n, e));
+              return;
+            }
             const servidor = Number(url.searchParams.get('servidor') ?? 0) || 0;
             // se o navegador cancelar (ou fechar), a consulta ao Overpass também é cancelada
             const cancelar = new AbortController();
@@ -69,6 +77,36 @@ export function apiLocal(): Plugin {
                 res.end(JSON.stringify({ tipo: falha.tipo, mensagem: falha.message }));
               }
             }
+            return;
+          }
+          if (url.pathname === '/mapa') {
+            const u = url.searchParams.get('u') ?? '';
+            if (!urlPermitida(u)) {
+              res.statusCode = 403;
+              res.end('Endereço não permitido');
+              return;
+            }
+            try {
+              const r = await obterRecursoMapa(u);
+              res.setHeader('Content-Type', r.tipo);
+              res.setHeader('X-Cache', r.origem);
+              res.end(r.dados);
+            } catch (erro) {
+              // 404 do servidor de tiles (ex.: tile vazio no oceano) é normal para o mapa
+              res.statusCode = /HTTP 404/.test(String(erro)) ? 404 : 502;
+              res.end(String(erro instanceof Error ? erro.message : erro));
+            }
+            return;
+          }
+          if (url.pathname === '/osm/local/cobre') {
+            const [o, s, l, n] = ['oeste', 'sul', 'leste', 'norte'].map((k) => Number(url.searchParams.get(k)));
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ cobre: [o, s, l, n].every(Number.isFinite) && indiceCobre(o, s, l, n) }));
+            return;
+          }
+          if (url.pathname === '/osm/local') {
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify(infoIndice()));
             return;
           }
           if (url.pathname === '/osm/servidores') {

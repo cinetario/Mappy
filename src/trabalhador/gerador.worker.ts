@@ -11,7 +11,7 @@ import { extrairAgua, extrairPredios, extrairVias, filtrarPorArea, type GrupoOSM
 import type { Malha } from '../core/malha.ts';
 import { escreverStl, lerStl } from '../core/stl.ts';
 import { verificarMalha } from '../core/verificacao.ts';
-import { baixarOSM } from '../navegador/osm-cliente.ts';
+import { baixarOSM, indiceCobre, obterInfoIndiceLocal } from '../navegador/osm-cliente.ts';
 import { FONTES_TILES, gradeCopernicus } from '../navegador/tiles.ts';
 import { Cancelado } from '../core/blocos.ts';
 import type { BlocosFaltando, Contagem, MensagemDoWorker, MensagemParaWorker, ResultadoGeracao } from './protocolo.ts';
@@ -24,7 +24,7 @@ const enviar = (m: MensagemDoWorker, transferir: Transferable[] = []) => postMes
 // a última grade fica guardada: mudar só exagero/base/estilo não baixa nada de novo
 let ultimaGrade: { chave: string; grade: GradeElevacao & { aviso?: string } } | null = null;
 
-const NOMES: Record<GrupoOSM, string> = { predios: 'prédios', vias: 'ruas', agua: 'água' };
+const NOMES: Record<GrupoOSM, string> = { predios: 'prédios', vias: 'ruas', agua: 'água', cobertura: 'cobertura do solo', arvores: 'árvores' };
 
 const cancelamentos = new Map<number, AbortController>();
 
@@ -52,13 +52,29 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
     if (params.agua) grupos.push('agua');
     const dados: DadosCamadas = { predios: null, vias: null, agua: null };
     const faltando: BlocosFaltando[] = [];
+
+    // fonte dos dados: arquivo local quando escolhido e quando ele cobre a área
+    let fonteOsm: 'local' | 'overpass' | null = null;
+    const avisosFonte: string[] = [];
+    if (grupos.length) {
+      fonteOsm = 'overpass';
+      if (params.fonteOsm === 'local') {
+        const info = await obterInfoIndiceLocal();
+        if (await indiceCobre(info, plano.caixaGrade)) fonteOsm = 'local';
+        else if (!info?.disponivel) avisosFonte.push('Nenhum arquivo local do OpenStreetMap foi importado: usando o Overpass (online). Veja a aba Camadas.');
+        else if (info.desatualizado) avisosFonte.push('O índice local é de uma versão antiga do app: rode "npm run importar-osm" de novo. Usando o Overpass.');
+        else avisosFonte.push(`A área fica fora do arquivo local (${info.arquivos.map((a) => a.nome).join(', ')}): usando o Overpass (online).`);
+      }
+    }
+    const origem = fonteOsm === 'local' ? 'do arquivo local' : 'do OpenStreetMap';
+
     for (const [k, grupo] of grupos.entries()) {
       const base = 0.35 + (k / grupos.length) * 0.35;
       const { elementos: baixados, faltando: semDados } = await baixarOSM(grupo, plano.caixaGrade, ({ feitos, total, mensagem }) =>
         progresso(
-          `Baixando ${NOMES[grupo]} do OpenStreetMap (bloco ${Math.min(feitos + 1, total)} de ${total})${mensagem ? ` · ${mensagem}` : ''}`,
+          `${fonteOsm === 'local' ? 'Lendo' : 'Baixando'} ${NOMES[grupo]} ${origem} (bloco ${Math.min(feitos + 1, total)} de ${total})${mensagem ? ` · ${mensagem}` : ''}`,
           base + (feitos / total) * (0.35 / grupos.length),
-        ), sinal);
+        ), sinal, fonteOsm ?? 'overpass');
       if (semDados.length) faltando.push({ grupo, nome: NOMES[grupo], blocos: semDados });
       // só o que toca a área; a costa vem inteira (o mar é montado seguindo as linhas até a borda)
       const costa = baixados.filter((e) => e.tags?.natural === 'coastline');
@@ -117,7 +133,8 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
         aviso: grade.aviso,
         contagem,
         estatisticasCamadas: r.camadas?.estatisticas ?? null,
-        avisosCamadas: [...faltando.map(textoFaltando), ...(r.camadas?.avisos ?? [])],
+        avisosCamadas: [...avisosFonte, ...faltando.map(textoFaltando), ...(r.camadas?.avisos ?? [])],
+        fonteOsm,
         faltando,
       },
     };
