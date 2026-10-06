@@ -5,12 +5,17 @@
 // [a, b] é  prisma(feição) ∩ S(b) − S(a). Assim ela acompanha exatamente a
 // superfície, sem frestas e sem invadir o terreno.
 import { alinharEspessura, alinharZ, type GradeCamadas } from './camadas-impressao.ts';
+import { aleatorio } from './aleatorio.ts';
 import { montarTerra, type Caixa2D, type P } from './costa.ts';
 import type { LonLat } from './geo.ts';
 import type { Malha } from './malha.ts';
 import { malhaParaSolido, type Solido, type Wasm } from './manifold.ts';
-import { larguraRioM, type DadosAgua, type LinhaOSM, type Predio, type Via } from './osm.ts';
+import { larguraRioM, type AreaCobertura, type DadosAgua, type DadosArvores, type LinhaOSM, type Predio, type Via } from './osm.ts';
 import { TIPOS_VIA, type TipoVia } from './vias.ts';
+import { LISTA_COBERTURA, TIPOS_COBERTURA, type TipoCobertura } from './categorias-osm.ts';
+import type { ConfigCobertura } from './cobertura.ts';
+import { posicionarArvores, type EstiloArvore } from './arvores.ts';
+import { rasterizar } from './raster.ts';
 
 type Secao = InstanceType<Wasm['CrossSection']>;
 
@@ -18,6 +23,11 @@ export interface DadosCamadas {
   predios: Predio[] | null;
   vias: Via[] | null;
   agua: DadosAgua | null;
+  /** áreas de cobertura do solo (também usadas para encher florestas de árvores) */
+  cobertura?: AreaCobertura[] | null;
+  arvores?: DadosArvores | null;
+  /** curvas de nível já em coordenadas do modelo */
+  curvas?: P[][] | null;
 }
 
 export interface OpcoesCamadas {
@@ -39,6 +49,17 @@ export interface OpcoesCamadas {
     modo: 'superficie' | 'extrudada'; altura: number; integracao: 'elevada' | 'rebaixada';
     profundidade: number; cor: string; rios: boolean; ocultarPequenos: boolean; larguraMin: number; areaMin: number;
   };
+  cobertura?: {
+    ligada: boolean; modo: 'superficie' | 'extrudada'; deslocamento: number;
+    /** altura já em unidades do modelo */
+    categorias: ConfigCobertura; areaMin: number;
+  };
+  arvores?: {
+    ligada: boolean; estilo: EstiloArvore; usarMapeadas: boolean; encherFlorestas: boolean;
+    /** árvores por unidade² do modelo */
+    densidade: number; altura: number; distancia: number; cor: string; maximo: number;
+  };
+  curvas?: { imprimir: boolean; altura: number; largura: number; cor: string };
 }
 
 export interface ContextoTerreno {
@@ -61,7 +82,8 @@ export interface ContextoTerreno {
 }
 
 export interface PecaCamada {
-  id: 'predios' | 'ruas' | 'agua';
+  /** predios, ruas, agua, arvores, curvas ou cobertura-<tipo> */
+  id: string;
   nome: string;
   cor: string;
   solido: Solido;
@@ -71,6 +93,9 @@ export interface EstatisticasCamadas {
   predios?: { quantidade: number; menorMm: number; maiorMm: number; menorM: number; maiorM: number; semAltura: number };
   ruas?: { quantidade: number; porTipo: Partial<Record<TipoVia, number>> };
   agua?: { poligonos: number; rios: number; temMar: boolean; removidosPequenos: number; planos: number };
+  cobertura?: { areas: number; porTipo: Partial<Record<TipoCobertura, number>>; removidasPequenas: number };
+  arvores?: { quantidade: number; mapeadas: number; removidasPorDistancia: number; cortadasPeloMaximo: number; alturaMm: number; copaMm: number };
+  curvas?: { linhas: number };
 }
 
 export interface ResultadoCamadas {
@@ -79,6 +104,8 @@ export interface ResultadoCamadas {
   cortes: Solido[];
   avisos: string[];
   estatisticas: EstatisticasCamadas;
+  /** curvas de nível só para a visualização (x, y, z, x, y, z, …), quando não vão para a impressão */
+  linhasPrevia: Float32Array[];
 }
 
 export const MARGEM_FUNDO = 0.2;
@@ -130,6 +157,10 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
   const esp = (v: number) => (op.real ? v : alinharEspessura(v, op.camadas));
   const pecas: PecaCamada[] = [];
   const cortes: Solido[] = [];
+  /** áreas (2D) de prédios, ruas e água: as árvores ficam longe delas */
+  const obstaculos2D: Secao[] = [];
+  let agua2D: Secao | null = null;
+  const linhasPrevia: Float32Array[] = [];
 
   /** [a, b] relativos ao terreno para uma camada "drapeada" */
   const faixaVertical = (modo: 'superficie' | 'extrudada', integ: 'elevada' | 'rebaixada', altura: number, prof: number, desl: number) => {
@@ -182,6 +213,7 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
         const uniao2d = secoes.length === 1 ? secoes[0] : g(wasm.CrossSection.union(secoes));
         const cs = abrir(recortar(uniao2d), op.larguraMinima);
         if (cs.isEmpty()) continue;
+        obstaculos2D.push(cs);
         prismas.push(prisma(cs, margem, telhado));
       }
       if (prismas.length) {
@@ -211,6 +243,7 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
       if (poligonos.length) {
         const cs = recortar(g(new wasm.CrossSection(poligonos, 'NonZero')));
         if (!cs.isEmpty()) {
+          obstaculos2D.push(cs);
           const { a, b } = faixaVertical(r.modo, r.integracao, r.altura, r.profundidade, r.deslocamento);
           let s = laje(cs, a, b);
           if (solidoPredios) s = g(s.subtract(solidoPredios));
@@ -225,6 +258,7 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
     }
 
     // ================= ÁGUA =================
+    let solidoAgua: Solido | null = null;
     if (dados.agua) {
       const w = op.agua;
       const partes: Secao[] = [];
@@ -257,6 +291,8 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
       if (partes.length) {
         let cs = recortar(g(wasm.CrossSection.union(partes)));
         if (w.ocultarPequenos) cs = abrir(cs, w.larguraMin);
+        agua2D = cs;
+        obstaculos2D.push(cs);
         const componentes = cs.decompose().map(g);
         const { a, b } = faixaVertical(w.modo, w.integracao, w.altura, w.profundidade, 0);
         const solidos: Solido[] = [];
@@ -290,10 +326,136 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
           let s = g(wasm.Manifold.union(solidos));
           if (solidoPredios) s = g(s.subtract(solidoPredios));
           if (solidoRuas) s = g(s.subtract(solidoRuas));
-          if (!s.isEmpty()) pecas.push({ id: 'agua', nome: 'Água', cor: w.cor, solido: s });
+          if (!s.isEmpty()) {
+            solidoAgua = s;
+            pecas.push({ id: 'agua', nome: 'Água', cor: w.cor, solido: s });
+          }
         }
       }
       estatisticas.agua = { poligonos: dados.agua.poligonos.length, rios: dados.agua.rios.length, temMar, removidosPequenos: removidos, planos };
+    }
+
+    /** subtrai das peças de menor prioridade as de maior prioridade */
+    const semPrioritarias = (s: Solido, ...outros: (Solido | null)[]) => {
+      let r = s;
+      for (const o of outros) if (o) r = g(r.subtract(o));
+      return r;
+    };
+
+    // ================= ÁRVORES =================
+    let solidoArvores: Solido | null = null;
+    const ar = op.arvores;
+    if (ar?.ligada) {
+      const altura = ar.altura;
+      const diametro = Math.max(0.7 * altura, op.larguraMinima);
+      const caixaC = caixaDe(ctx.contorno);
+      const passo = Math.max(diametro / 6, (caixaC.x1 - caixaC.x0) / 3000);
+      const mascara = (polys: P[][]) => rasterizar(polys, caixaC.x0, caixaC.y0, caixaC.x1, caixaC.y1, passo);
+      // proibido: perto de prédios, ruas e água (distância de segurança + raio da copa)
+      let proibido = null;
+      if (obstaculos2D.length) {
+        const obst = g(g(wasm.CrossSection.union(obstaculos2D)).offset(ar.distancia + diametro / 2, 'Round', 2, 12));
+        proibido = mascara(obst.toPolygons() as P[][]);
+      }
+      // florestas (mesmo com a camada de cobertura desligada)
+      let florestas = null;
+      const areasFloresta = (dados.cobertura ?? []).filter((c) => c.tipo === 'floresta');
+      if (ar.encherFlorestas && areasFloresta.length) {
+        const secoes = areasFloresta.map((c) => g(new wasm.CrossSection(c.aneis.map((a) => a.map(ctx.projetar)), 'EvenOdd')));
+        florestas = mascara((recortar(g(wasm.CrossSection.union(secoes))).toPolygons()) as P[][]);
+      }
+      const mapeadas = ar.usarMapeadas ? (dados.arvores?.pontos ?? []).map((p) => ctx.projetar(p.pos)) : [];
+      const fileiras = ar.usarMapeadas ? (dados.arvores?.fileiras ?? []).map((f) => f.pontos.map(ctx.projetar)) : [];
+      const pos = posicionarArvores({
+        mapeadas, fileiras, florestas, caixa: caixaC, noModelo: mascara([ctx.contorno]), proibido,
+        densidade: ar.densidade, diametro, maximo: ar.maximo,
+      });
+      if (pos.arvores.length) {
+        const modelo = g(modeloArvore(wasm, ar.estilo, altura, diametro, g));
+        // afunda um pouco no chão, para a árvore não ficar no ar em terreno inclinado
+        const afundar = altura * 0.25;
+        const instancias = pos.arvores.map((a) =>
+          g(g(modelo.scale(a.escala)).translate(a.x, a.y, ctx.alturaEm(a.x, a.y) - afundar * a.escala)));
+        let s = g(wasm.Manifold.union(instancias));
+        s = g(s.subtract(S(0)));
+        s = semPrioritarias(s, solidoPredios, solidoRuas, solidoAgua);
+        if (!s.isEmpty()) {
+          solidoArvores = s;
+          pecas.push({ id: 'arvores', nome: 'Árvores', cor: ar.cor, solido: s });
+        }
+      }
+      estatisticas.arvores = {
+        quantidade: pos.arvores.length, mapeadas: mapeadas.length + fileiras.length,
+        removidasPorDistancia: pos.removidasPorDistancia, cortadasPeloMaximo: pos.cortadasPeloMaximo,
+        alturaMm: altura, copaMm: diametro,
+      };
+      if (pos.cortadasPeloMaximo) {
+        avisos.push(`Árvores: ${pos.cortadasPeloMaximo.toLocaleString('pt-BR')} ficaram de fora pelo limite de ${ar.maximo.toLocaleString('pt-BR')}. Reduza a densidade ou aumente o limite.`);
+      }
+    }
+
+    // ================= CURVAS DE NÍVEL =================
+    let solidoCurvas: Solido | null = null;
+    if (dados.curvas?.length && op.curvas) {
+      const cv = op.curvas;
+      if (cv.imprimir) {
+        const pols: P[][] = [];
+        const largura = Math.max(cv.largura, op.larguraMinima);
+        // simplifica antes de engrossar: menos vértices = menos juntas e triângulos
+        for (const linha of dados.curvas) engrossarLinha(simplificarLinha(linha, largura / 4), largura, pols);
+        let cs = recortar(g(new wasm.CrossSection(pols, 'NonZero')));
+        if (agua2D) cs = g(cs.subtract(agua2D)); // não desenha curvas por cima da água
+        if (!cs.isEmpty()) {
+          let s = laje(cs, 0, esp(cv.altura));
+          s = semPrioritarias(s, solidoPredios, solidoRuas, solidoAgua, solidoArvores);
+          if (!s.isEmpty()) {
+            solidoCurvas = s;
+            pecas.push({ id: 'curvas', nome: 'Curvas de nível', cor: cv.cor, solido: s });
+          }
+        }
+      } else {
+        // só na visualização: linhas um pouco acima do terreno
+        const acima = op.mm(0.05);
+        for (const linha of dados.curvas) {
+          const xyz = new Float32Array(linha.length * 3);
+          linha.forEach(([x, y], k) => xyz.set([x, y, ctx.alturaEm(x, y) + acima], k * 3));
+          linhasPrevia.push(xyz);
+        }
+      }
+      estatisticas.curvas = { linhas: dados.curvas.length };
+    }
+
+    // ================= COBERTURA DO SOLO =================
+    const cb = op.cobertura;
+    if (cb?.ligada && dados.cobertura?.length) {
+      const porTipo: Partial<Record<TipoCobertura, number>> = {};
+      let usado: Secao | null = null; // uma área só entra numa categoria (a primeira da lista)
+      let removidas = 0;
+      for (const tipo of LISTA_COBERTURA) {
+        const conf = cb.categorias[tipo];
+        if (!conf.ligada) continue;
+        const areas = dados.cobertura.filter((c) => c.tipo === tipo);
+        if (!areas.length) continue;
+        let cs = recortar(g(wasm.CrossSection.union(areas.map((c) => g(new wasm.CrossSection(c.aneis.map((a) => a.map(ctx.projetar)), 'EvenOdd'))))));
+        if (usado) cs = g(cs.subtract(usado));
+        if (agua2D) cs = g(cs.subtract(agua2D));
+        cs = abrir(cs, op.larguraMinima);
+        // descarta pedacinhos menores que a área mínima
+        const comps = cs.decompose().map(g);
+        const grandes = comps.filter((c) => c.area() >= cb.areaMin);
+        removidas += comps.length - grandes.length;
+        if (!grandes.length) continue;
+        cs = g(wasm.CrossSection.compose(grandes));
+        usado = usado ? g(wasm.CrossSection.union([usado, cs])) : cs;
+        const { a, b } = faixaVertical(cb.modo, conf.integracao, conf.alturaMm, conf.alturaMm, cb.deslocamento);
+        let s = laje(cs, a, b);
+        s = semPrioritarias(s, solidoPredios, solidoRuas, solidoAgua, solidoArvores, solidoCurvas);
+        if (s.isEmpty()) continue;
+        pecas.push({ id: `cobertura-${tipo}`, nome: `Cobertura – ${TIPOS_COBERTURA[tipo].nome}`, cor: conf.cor, solido: s });
+        if (a < 0) cortes.push(coluna(cs, a));
+        porTipo[tipo] = grandes.length;
+      }
+      estatisticas.cobertura = { areas: dados.cobertura.length, porTipo, removidasPequenas: removidas };
     }
 
     if (furouBase) {
@@ -302,14 +464,70 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
     // os sólidos devolvidos são de quem chama: tira da lista de descarte
     const devolvidos = new Set<unknown>([...pecas.map((p) => p.solido), ...cortes]);
     for (let k = lixo.length - 1; k >= 0; k--) if (devolvidos.has(lixo[k])) lixo.splice(k, 1);
-    return { pecas, cortes, avisos, estatisticas };
+    return { pecas, cortes, avisos, estatisticas, linhasPrevia };
   } finally {
     for (const o of lixo) o.delete();
     for (const s of superficies.values()) s.delete();
   }
 }
 
+// ---------- forma das árvores ----------
+/**
+ * Árvore com a base em z = 0 e o topo em z = altura.
+ * - copa: uma copa arredondada (elipsoide) do chão ao topo, boa para imprimir;
+ * - clássica: tronco (40% da altura) + copa.
+ * Versões low-poly usam menos lados (aspecto facetado, arquivo menor).
+ */
+export function modeloArvore(
+  wasm: Wasm, estilo: EstiloArvore, altura: number, diametro: number,
+  g: <T extends { delete(): void }>(o: T) => T,
+): Solido {
+  const lowpoly = estilo === 'copaLowpoly' || estilo === 'classicaLowpoly';
+  const lados = lowpoly ? 6 : 14;
+  if (estilo === 'copa' || estilo === 'copaLowpoly') {
+    return g(g(wasm.Manifold.sphere(0.5, lados)).scale([diametro, diametro, altura])).translate(0, 0, altura / 2);
+  }
+  const alturaTronco = altura * 0.4;
+  const raioTronco = Math.max(diametro * 0.14, 0.2);
+  const tronco = g(wasm.Manifold.cylinder(alturaTronco + altura * 0.1, raioTronco, raioTronco, lowpoly ? 5 : 8));
+  const alturaCopa = altura - alturaTronco;
+  const copa = g(g(g(wasm.Manifold.sphere(0.5, lados)).scale([diametro, diametro, alturaCopa])).translate(0, 0, alturaTronco + alturaCopa / 2));
+  return wasm.Manifold.union(tronco, copa);
+}
+
 // ---------- utilidades geométricas ----------
+/** Douglas-Peucker: remove vértices que desviam menos que `tolerancia` da linha. */
+export function simplificarLinha(pts: P[], tolerancia: number): P[] {
+  if (pts.length <= 2) return pts;
+  const manter = new Uint8Array(pts.length);
+  manter[0] = 1;
+  manter[pts.length - 1] = 1;
+  const pilha: [number, number][] = [[0, pts.length - 1]];
+  while (pilha.length) {
+    const [i, j] = pilha.pop()!;
+    const [ax, ay] = pts[i];
+    const [bx, by] = pts[j];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    let maior = -1;
+    let k = -1;
+    for (let m = i + 1; m < j; m++) {
+      const [px, py] = pts[m];
+      const d = len < 1e-12 ? Math.hypot(px - ax, py - ay) : Math.abs(dy * px - dx * py + bx * ay - by * ax) / len;
+      if (d > maior) {
+        maior = d;
+        k = m;
+      }
+    }
+    if (k >= 0 && maior > tolerancia) {
+      manter[k] = 1;
+      pilha.push([i, k], [k, j]);
+    }
+  }
+  return pts.filter((_, i) => manter[i]);
+}
+
 function caixaDe(pts: P[]): Caixa2D {
   const c = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
   for (const [x, y] of pts) {
@@ -395,13 +613,4 @@ function dentroPar([x, y]: P, aneis: P[][]): boolean {
   return d;
 }
 
-/** Número pseudoaleatório estável em [0, 1) a partir do id do OSM. */
-export function aleatorio(id: string): number {
-  let h = 2166136261;
-  for (let k = 0; k < id.length; k++) h = Math.imul(h ^ id.charCodeAt(k), 16777619);
-  h += 0x6d2b79f5;
-  let t = h;
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-}
+export { aleatorio };

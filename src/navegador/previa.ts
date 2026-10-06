@@ -54,7 +54,11 @@ export function criarPrevia(container: HTMLElement) {
      * Mostra as peças. `enquadrar` reposiciona a câmera (use quando a área muda).
      * Devolve o tamanho do quadrado da grade do chão.
      */
-    mostrar(pecas: { id: string; malha: Malha; cor: string; opacidade?: number; arestas?: boolean }[], enquadrar = true): number {
+    mostrar(
+      pecas: { id: string; malha: Malha; cor: string; opacidade?: number; arestas?: boolean }[],
+      enquadrar = true,
+      linhas?: { id: string; pontos: Float32Array[]; cor: string },
+    ): number {
       for (const filho of [...grupo.children]) {
         filho.traverse((o) => {
           const m = o as THREE.Mesh;
@@ -93,6 +97,19 @@ export function criarPrevia(container: HTMLElement) {
           mesh.add(linhas);
         }
         grupo.add(mesh);
+      }
+      // linhas só de visualização (curvas de nível que não vão para o arquivo)
+      if (linhas?.pontos.length) {
+        const segmentos: number[] = [];
+        for (const l of linhas.pontos) {
+          for (let k = 0; k + 5 < l.length; k += 3) segmentos.push(l[k], l[k + 1], l[k + 2], l[k + 3], l[k + 4], l[k + 5]);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(segmentos, 3));
+        const obj = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: linhas.cor }));
+        obj.name = linhas.id;
+        obj.visible = visivel(linhas.id);
+        grupo.add(obj);
       }
 
       // grade de referência no chão

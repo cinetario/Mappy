@@ -1,6 +1,7 @@
 // Mensagens trocadas entre a página e o Web Worker de geração.
 import type { EstatisticasCamadas } from '../core/camadas.ts';
 import type { GrupoOSM } from '../core/categorias-osm.ts';
+import type { InfoCurvas } from '../core/modelo.ts';
 import type { Parametros } from '../core/estado.ts';
 import type { Forma } from '../core/geo.ts';
 import type { ResultadoVerificacao } from '../core/verificacao.ts';
@@ -29,6 +30,7 @@ export interface Contagem {
   vias: number | null;
   agua: number | null;
   cobertura: number | null;
+  arvores: number | null;
 }
 
 export interface ParteGerada {
@@ -66,6 +68,8 @@ export interface InfoModelo {
   faltando: BlocosFaltando[];
   /** de onde vieram os dados do OSM (null = nenhuma camada do OSM ligada) */
   fonteOsm: 'local' | 'overpass' | null;
+  /** curvas de nível: intervalo, quantos níveis e faixa de altitudes */
+  curvas: InfoCurvas | null;
 }
 
 export interface ResultadoGeracao {
@@ -74,6 +78,8 @@ export interface ResultadoGeracao {
   unica: { posicoes: Float32Array; indices: Uint32Array };
   verificacao: ResultadoVerificacao;
   info: InfoModelo;
+  /** curvas de nível só para a visualização (x, y, z, …) */
+  linhasPrevia: Float32Array[];
 }
 
 export type MensagemDoWorker =

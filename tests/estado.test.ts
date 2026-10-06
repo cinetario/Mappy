@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  PRESETS, aplicarPreset, escreverFaixas, estadoParaUrl, lerFaixas, parametrosPadrao, urlParaEstado,
+  PARAMETROS, PRESETS, aplicarPreset, escreverFaixas, estadoParaUrl, lerFaixas, parametrosPadrao, urlParaEstado,
   type Estado,
 } from '../src/core/estado.ts';
 import type { Forma } from '../src/core/geo.ts';
@@ -64,6 +64,16 @@ describe('estado na URL', () => {
     expect(urlParaEstado('#a=c:200,0,100').forma).toBeNull(); // longitude fora
     expect(urlParaEstado('#a=p:1,1;2,2').forma).toBeNull(); // só 2 pontos
     expect(urlParaEstado('#a=c:0,0,-5').forma).toBeNull(); // raio negativo
+  });
+});
+
+describe('chaves da URL', () => {
+  it('são únicas e não colidem com a área (a) nem com o nome (n)', () => {
+    const chaves = Object.values(PARAMETROS).map((d) => d.url);
+    const repetidas = chaves.filter((c, i) => chaves.indexOf(c) !== i);
+    expect(repetidas).toEqual([]);
+    expect(chaves).not.toContain('a');
+    expect(chaves).not.toContain('n');
   });
 });
 

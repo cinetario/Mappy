@@ -10,10 +10,12 @@ import {
   type AoMudar, type Contexto, type Controle,
 } from './painel.ts';
 import { decimal, distancia, inteiro, medidaModelo, type Sistema } from './unidades.ts';
+import { LISTA_COBERTURA, TIPOS_COBERTURA, type TipoCobertura } from '../core/categorias-osm.ts';
+import { coberturaPadrao, escreverCobertura, lerCobertura } from '../core/cobertura.ts';
 
 export interface AcoesCamadas {
   aoMudar: AoMudar;
-  aoOcultar: (id: 'predios' | 'ruas' | 'agua', oculta: boolean) => void;
+  aoOcultar: (id: string, oculta: boolean) => void;
 }
 
 /** mm impressos → metros reais (com a escala prevista). */
@@ -175,6 +177,107 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
     }),
   ]);
 
+  // ================= COBERTURA DO SOLO =================
+  const cobertura = camada({
+    id: 'cobertura',
+    titulo: 'Cobertura do solo',
+    ligada: (c) => c.params.cobertura,
+    aoLigar: (v) => aoMudar('cobertura', v),
+    contagem: (c) => (c.info?.contagem.cobertura != null ? inteiro(c.info.contagem.cobertura) : ''),
+    aoOcultar: (o) => a.aoOcultar('cobertura', o),
+  }, [
+    informacao(() => 'Florestas, gramados, lavouras, áreas úmidas, areia, gelo, rocha e áreas urbanas (landuse/natural do OSM). Cada categoria vira uma peça com a própria cor.'),
+    opcoes('coberturaModo', 'Modo', [['superficie', 'Superfície (pintada)'], ['extrudada', 'Extrudada']], aoMudar),
+    numero('coberturaDeslocamentoMm', 'Deslocamento vertical', aoMudar, { unidade: 'mm', passo: 0.2 }),
+    numero('coberturaOpacidade', 'Opacidade (visualização)', aoMudar, { deslizante: true, passo: 0.05, exibir: (c) => `${Math.round(c.params.coberturaOpacidade * 100)}%` }),
+    subsecao('Categorias (avançado)', [tabelaCobertura(aoMudar)]),
+    numero('coberturaAreaMinMm2', 'Área mínima', aoMudar, {
+      unidade: 'mm²', passo: 1,
+      dica: (c) => {
+        const m = emMetros(c, 1);
+        return `Áreas menores somem (ficariam só pontinhos de cor). ${m === null ? '' : `≈ ${inteiro(c.params.coberturaAreaMinMm2 * m * m)} m² reais.`}`;
+      },
+    }),
+    informacao((c) => {
+      const s = c.info?.estatisticasCamadas?.cobertura;
+      if (!s) return '';
+      const partes = Object.entries(s.porTipo).map(([t, n]) => `${TIPOS_COBERTURA[t as TipoCobertura].nome}: ${n}`);
+      return `${partes.join(' · ') || 'Nenhuma área nesta região.'}${s.removidasPequenas ? ` · ${s.removidasPequenas} pequenas ocultadas` : ''}`;
+    }),
+  ]);
+
+  // ================= ÁRVORES =================
+  const arvores = camada({
+    id: 'arvores',
+    titulo: 'Árvores',
+    ligada: (c) => c.params.arvores,
+    aoLigar: (v) => aoMudar('arvores', v),
+    contagem: (c) => (c.info?.estatisticasCamadas?.arvores ? inteiro(c.info.estatisticasCamadas.arvores.quantidade) : ''),
+    aoOcultar: (o) => a.aoOcultar('arvores', o),
+  }, [
+    booleano('arvoresOsm', 'Árvores mapeadas no OSM (natural=tree)', aoMudar),
+    booleano('arvoresFlorestas', 'Preencher áreas de floresta com árvores geradas', aoMudar),
+    opcoes('arvoresEstilo', 'Estilo', [
+      ['copa', 'Só copa (impressão 3D)'], ['copaLowpoly', 'Só copa low-poly'],
+      ['classica', 'Clássica (tronco + copa)'], ['classicaLowpoly', 'Clássica low-poly'],
+    ], aoMudar, {
+      lista: true,
+      dica: (c) => (c.params.arvoresEstilo.startsWith('classica') ? 'O tronco é fino: pode não sair bem com bico de 0,4 mm. Para imprimir, prefira "Só copa".' : ''),
+    }),
+    numero('arvoresDensidade', 'Densidade nas florestas', aoMudar, {
+      deslizante: true, passo: 0.1,
+      exibir: (c) => `${decimal(c.params.arvoresDensidade, 1)} por cm²`,
+      dica: (c) => {
+        const s = c.info?.estatisticasCamadas?.arvores;
+        return s ? `<strong>${inteiro(s.quantidade)}</strong> árvores no modelo${s.removidasPorDistancia ? ` (${inteiro(s.removidasPorDistancia)} removidas por estarem perto de ruas, prédios ou água)` : ''}.` : '';
+      },
+    }),
+    numero('arvoresAlturaMm', 'Tamanho (altura)', aoMudar, {
+      unidade: 'mm', passo: 0.2,
+      dica: (c) => {
+        const h = c.params.arvoresAlturaMm;
+        const d = Math.max(0.7 * h, LARGURA_MINIMA_MM);
+        return `Altura ${decimal(h, 1)} mm ${equivalente(c, h)} · copa ${decimal(d, 1)} mm ${equivalente(c, d)}.`;
+      },
+    }),
+    numero('arvoresDistanciaMm', 'Distância de segurança', aoMudar, {
+      unidade: 'mm', passo: 0.1, dica: 'Afasta as copas de ruas, prédios e água. As árvores maiores saem primeiro.',
+    }),
+    numero('arvoresMaximo', 'Máximo de árvores', aoMudar, { unidade: '', passo: 100, dica: 'Muitas árvores deixam a geração lenta e o arquivo pesado.' }),
+    cor('arvoresCor', 'Cor da folhagem', aoMudar),
+  ]);
+
+  // ================= CURVAS DE NÍVEL =================
+  const curvas = camada({
+    id: 'curvas',
+    titulo: 'Curvas de nível',
+    ligada: (c) => c.params.curvas,
+    aoLigar: (v) => aoMudar('curvas', v),
+    contagem: (c) => (c.info?.estatisticasCamadas?.curvas ? inteiro(c.info.estatisticasCamadas.curvas.linhas) : ''),
+    aoOcultar: (o) => a.aoOcultar('curvas', o),
+  }, [
+    informacao((c) => {
+      const i = c.info?.curvas;
+      const u = sis(c);
+      if (!i) return 'Linhas de mesma altitude, calculadas do relevo.';
+      return `Altitudes: <strong>${altitudeTexto(i.minM, u)} → ${altitudeTexto(i.maxM, u)}</strong> · intervalo de ${altitudeTexto(i.intervaloM, u)} · ${i.niveis} níveis`;
+    }),
+    numero('curvasIntervaloM', 'Intervalo', aoMudar, {
+      unidade: 'm', passo: 5,
+      exibir: (c) => (c.params.curvasIntervaloM === 0 ? 'automático' : ''),
+      dica: 'Use 0 para automático (cerca de 15 linhas entre o ponto mais baixo e o mais alto).',
+    }),
+    booleano('curvasImprimir', 'Imprimir como linhas em relevo baixo', aoMudar, {
+      dica: (c) => (c.params.curvasImprimir ? '' : 'Só aparecem na visualização (não vão para o arquivo).'),
+    }),
+    numero('curvasAlturaMm', 'Altura das linhas', aoMudar, { unidade: 'mm', passo: 0.2, visivel: (c) => c.params.curvasImprimir }),
+    numero('curvasLarguraMm', 'Largura das linhas', aoMudar, {
+      unidade: 'mm', passo: 0.1, visivel: (c) => c.params.curvasImprimir,
+      dica: (c) => (c.params.curvasLarguraMm < LARGURA_MINIMA_MM ? `Abaixo de ${decimal(LARGURA_MINIMA_MM, 1)} mm: será engrossada para imprimir.` : ''),
+    }),
+    cor('curvasCor', 'Cor das curvas', aoMudar),
+  ]);
+
   const avisos = informacao((c) => (c.info?.avisosCamadas ?? []).map((t) => `<div class="aviso">${t}</div>`).join(''), {
     visivel: (c) => !!c.info?.avisosCamadas?.length,
   });
@@ -188,7 +291,7 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
   const fonte = opcoes('fonteOsm', 'Fonte dos dados OSM', [['local', 'Arquivo local'], ['overpass', 'Overpass (online)']], aoMudar);
   const infoFonte = informacao((c) => textoFonteOsm(c));
 
-  const controles = [fonte, infoFonte, intro, avisos, predios, ruas, agua];
+  const controles = [fonte, infoFonte, intro, avisos, predios, ruas, agua, cobertura, arvores, curvas];
   for (const c of controles) container.append(c.el);
   return {
     atualizar(c: Contexto) {
@@ -227,6 +330,60 @@ function textoFonteOsm(c: Contexto): string {
 }
 
 const camadas = (c: Contexto) => ({ h: c.params.alturaCamadaMm, h1: c.params.primeiraCamadaMm });
+
+/** Tabela das categorias de cobertura: liga, cor, altura e elevada/rebaixada. */
+function tabelaCobertura(aoMudar: (n: NomeParametro, v: Valor) => void): Controle {
+  const tabela = document.createElement('table');
+  tabela.className = 'tabela-vias';
+  tabela.innerHTML = '<thead><tr><th></th><th>Categoria</th><th>Cor</th><th>Altura (mm)</th><th></th></tr></thead>';
+  const corpo = document.createElement('tbody');
+  tabela.append(corpo);
+  let atual = coberturaPadrao();
+  const salvar = () => aoMudar('coberturaCategorias', escreverCobertura(atual));
+  const linhas = LISTA_COBERTURA.map((t) => {
+    const tr = document.createElement('tr');
+    const chk = Object.assign(document.createElement('input'), { type: 'checkbox' });
+    chk.setAttribute('aria-label', TIPOS_COBERTURA[t].nome);
+    const corEl = Object.assign(document.createElement('input'), { type: 'color' });
+    const alt = Object.assign(document.createElement('input'), { type: 'number', min: '0.04', max: '10', step: '0.2' });
+    alt.style.width = '62px';
+    const integ = document.createElement('select');
+    integ.innerHTML = '<option value="elevada">elevada</option><option value="rebaixada">rebaixada</option>';
+    chk.addEventListener('change', () => { atual[t].ligada = chk.checked; salvar(); });
+    corEl.addEventListener('input', () => { atual[t].cor = corEl.value; salvar(); });
+    alt.addEventListener('change', () => {
+      const v = Number(alt.value);
+      if (Number.isFinite(v) && v >= 0.04 && v <= 10) { atual[t].alturaMm = v; salvar(); }
+    });
+    integ.addEventListener('change', () => { atual[t].integracao = integ.value as 'elevada' | 'rebaixada'; salvar(); });
+    const td = (el: HTMLElement | string) => {
+      const c = document.createElement('td');
+      c.append(el);
+      return c;
+    };
+    tr.append(td(chk), td(TIPOS_COBERTURA[t].nome), td(corEl), td(alt), td(integ));
+    corpo.append(tr);
+    return { t, chk, corEl, alt, integ };
+  });
+  const el = document.createElement('div');
+  el.append(tabela);
+  return {
+    el,
+    atualizar(c) {
+      atual = lerCobertura(c.params.coberturaCategorias) ?? coberturaPadrao();
+      for (const l of linhas) {
+        const x = atual[l.t];
+        l.chk.checked = x.ligada;
+        l.corEl.value = x.cor;
+        if (document.activeElement !== l.alt) l.alt.value = String(x.alturaMm);
+        l.integ.value = x.integracao;
+        l.integ.disabled = c.params.coberturaModo === 'superficie';
+      }
+    },
+  };
+}
+
+const altitudeTexto = (m: number, s: Sistema) => (s === 'imperial' ? `${inteiro(m / 0.3048)} pés` : `${inteiro(m)} m`);
 const espessuraFina = (c: Contexto) => alinharEspessura(0.4, camadas(c));
 
 /** Botão "Só vias principais" (aparece acima de 25 km²) e "Todas as vias". */

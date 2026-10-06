@@ -3,14 +3,15 @@
 Aplicativo local (roda no seu PC, pelo navegador) que gera modelos 3D de mapas de
 qualquer lugar do mundo e exporta para impressão 3D.
 
-> **Fase atual: C.** Já funciona:
+> **Fase atual: D.** Já funciona:
 > - seleção em retângulo, círculo, hexágono ou polígono (a base sai no mesmo formato);
 > - aba Modelo com presets, 3 fontes de elevação e malha adaptativa;
 > - faixas de cor por altitude alinhadas às camadas de impressão;
-> - aba Camadas com **prédios, ruas e água** do OpenStreetMap;
+> - aba Camadas com **prédios, ruas, água, cobertura do solo, árvores e curvas de nível**;
+> - dados do OpenStreetMap de um **arquivo local** (ou do Overpass);
 > - exportação STL e estado salvo na URL.
 >
-> Próximas fases: D (cobertura do solo, árvores, curvas de nível) → E (moldura,
+> Próxima fase: E (moldura,
 > texto, blocos, 3MF multicor).
 
 ---
@@ -173,6 +174,35 @@ Clique no nome para abrir as opções.
     acompanham o terreno.
   - A profundidade do rebaixo é limitada para deixar 0,2 mm de base, e o app avisa.
   - *Avançado*: ocultar corpos d'água pequenos, por largura e área mínimas.
+- **Cobertura do solo** (desligada por padrão): Floresta, Grama, Lavoura, Área
+  úmida, Areia, Gelo, Rocha e Urbano, a partir de `landuse` / `natural` /
+  `leisure` do OSM.
+  - Cada categoria vira **uma peça com a própria cor**.
+  - Em *Categorias (avançado)*: liga/desliga, cor, altura e elevada/rebaixada
+    de cada uma. Urbano e Gelo vêm desligados.
+  - Modo superfície (rente ao terreno) ou extrudada, deslocamento vertical e
+    opacidade (só na tela).
+  - Áreas menores que a *área mínima* somem, para não virar pontinhos de cor.
+- **Árvores** (desligadas por padrão):
+  - Fontes, que dá para combinar: árvores mapeadas no OSM (`natural=tree` e
+    fileiras `tree_row`) e florestas preenchidas com árvores geradas (sempre
+    iguais para a mesma área).
+  - Estilos: *Só copa* (padrão, melhor para imprimir), *Só copa low-poly*,
+    *Clássica* (tronco + copa) e *Clássica low-poly*. O tronco da clássica é
+    fino para o bico de 0,4 mm.
+  - Densidade (árvores por cm²) com a contagem, tamanho em mm e em metros
+    reais. A copa nunca fica abaixo de 0,8 mm.
+  - *Distância de segurança*: afasta as copas de ruas, prédios e água.
+  - Limite de quantidade (padrão 4.000), para não travar.
+- **Curvas de nível** (desligadas por padrão; o preset Topográfico liga):
+  - Intervalo em metros, ou 0 para automático (~15 linhas). O painel mostra
+    a faixa de altitudes, por exemplo "1070 m → 1170 m".
+  - *Imprimir como linhas em relevo baixo*: as curvas viram uma peça (altura
+    e largura ajustáveis). Desligado, aparecem só na visualização.
+  - Não passam por cima da água.
+
+**Prioridade entre camadas** (a de cima recorta as de baixo, nada se sobrepõe):
+prédios > ruas > água > árvores > curvas de nível > cobertura do solo > terreno.
 
 **Tamanho da área e camadas:** prédios e ruas ficam em *automático*: ligados até
 100 km², desligados acima disso. Dá para ligar manualmente, com aviso; "Voltar ao
@@ -186,8 +216,11 @@ desligar prédios ou ficar só com as vias principais.
 ponte corta o rio). Cada peça é um sólido fechado separado, pronto para o 3MF
 multicor da Fase E.
 
-**Contador de cores:** acima dos botões aparece "Cores: N/4", contando terreno,
-base e camadas ligadas. A Snapmaker U1 tem 4 filamentos; se passar disso, o app avisa.
+**Contador de cores:** acima dos botões aparece "Cores: N/4". Antes de gerar,
+ele conta as cores das camadas ligadas; depois, só as das peças que saíram de
+verdade. A Snapmaker U1 tem 4 filamentos; se passar disso, o app avisa. Com a
+cobertura do solo ligada passa fácil de 4: use a mesma cor em categorias
+parecidas (ex.: floresta e grama em verde) ou desligue as que não importam.
 
 **Salvar e compartilhar:** a área e todos os parâmetros ficam no endereço da
 página (a parte depois do `#`). Copie a URL para guardar um modelo ou mandar
@@ -312,7 +345,12 @@ mapas3d/
       osm.ts            leitura dos dados do OSM (prédios, vias, água, multipolígonos)
       vias.ts           tipos de via e larguras
       costa.ts          mar a partir das linhas de costa
-      camadas.ts        geometria de prédios, ruas e água sobre o terreno
+      camadas.ts        geometria das camadas sobre o terreno (prédios … cobertura)
+      categorias-osm.ts quais elementos do OSM o app usa e em que grupo
+      cobertura.ts      configuração por categoria de cobertura do solo
+      arvores.ts        posições das árvores (OSM + florestas)
+      curvas.ts         curvas de nível (marching squares)
+      raster.ts         máscara em grade para perguntas "dentro/fora" rápidas
       blocos.ts         divisão da área em blocos para o Overpass
       verificacao.ts    verificação de malha manifold
       manifold.ts       ponte com a biblioteca manifold-3d (booleanas e validação)
@@ -332,7 +370,12 @@ mapas3d/
   server/               servidor local (embutido no Vite) com cache em disco
     fontes.ts           tiles, Nominatim, cache e novas tentativas
     copernicus.ts       leitura parcial dos GeoTIFF do Copernicus
-    overpass.ts         consultas ao Overpass com fila, cache e novas tentativas
-  scripts/              comandos verificar e exemplo
+    overpass.ts         consultas ao Overpass (uma tentativa por pedido, 60 s)
+    pbf.ts              leitor do formato .osm.pbf
+    importador.ts       .osm.pbf → índice SQLite (npm run importar-osm)
+    indice-osm.ts       consultas ao índice local e cobertura da área
+    mapa-fundo.ts       cache do mapa de fundo (OpenFreeMap)
+  scripts/              comandos verificar, exemplo e importar-osm
+  dados-osm/            seus .osm.pbf e o índice gerado (fora do Git)
   tests/                testes automáticos (Vitest)
 ```

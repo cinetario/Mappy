@@ -4,7 +4,7 @@ import type { GradeElevacao } from '../src/core/elevacao.ts';
 import { parametrosPadrao, type Parametros } from '../src/core/estado.ts';
 import { deslocar, dimensoesMetros, type Forma, type LonLat } from '../src/core/geo.ts';
 import { planejarAmostragem } from '../src/core/modelo.ts';
-import { extrairAgua, extrairPredios, extrairVias, type ElementoOSM } from '../src/core/osm.ts';
+import { extrairAgua, extrairArvores, extrairCobertura, extrairPredios, extrairVias, type ElementoOSM } from '../src/core/osm.ts';
 
 export const centro: LonLat = [-43.16, -22.95];
 export const forma: Forma = { tipo: 'retangulo', oeste: -43.17, sul: -22.958, leste: -43.15, norte: -22.942 };
@@ -63,6 +63,25 @@ export const dados = (detalhados = false): DadosCamadas => ({
   agua: extrairAgua(elementos),
 });
 export const params = (extra: Partial<Parametros> = {}): Parametros => ({ ...parametrosPadrao(), tamanhoMm: 200, exagero: 3, ...extra });
+
+// ---------- Fase D: cobertura do solo e árvores ----------
+export const elementosD: ElementoOSM[] = [
+  // floresta grande a nordeste (atravessada pela rua residencial em x = 0)
+  { type: 'way', id: 40, tags: { natural: 'wood' }, geometry: geo(quadrado(300, 450, 500)) },
+  // gramado a oeste
+  { type: 'way', id: 41, tags: { leisure: 'park' }, geometry: geo(quadrado(-450, 50, 250)) },
+  // lavoura sobreposta à floresta (a floresta vem antes na lista e fica com a sobreposição)
+  { type: 'way', id: 42, tags: { landuse: 'farmland' }, geometry: geo(quadrado(500, 450, 200)) },
+  // árvores mapeadas: uma no gramado, uma em cima da rua (deve ser removida)
+  { type: 'node', id: 50, tags: { natural: 'tree' }, lat: em(-450, 50)[1], lon: em(-450, 50)[0] },
+  { type: 'node', id: 51, tags: { natural: 'tree' }, lat: em(0, 300)[1], lon: em(0, 300)[0] },
+];
+
+export const dadosD = (): DadosCamadas => ({
+  ...dados(),
+  cobertura: extrairCobertura(elementosD),
+  arvores: extrairArvores(elementosD),
+});
 
 
 export function casos(): [string, Forma, GradeElevacao, Parametros, DadosCamadas][] {

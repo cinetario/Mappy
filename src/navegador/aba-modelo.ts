@@ -124,7 +124,7 @@ export function montarAbaModelo(container: HTMLElement, aoMudar: AoMudar) {
         const tri = c.partes.reduce((s, p) => s + p.indices.length / 3, 0);
         const verts = c.partes.reduce((s, p) => s + p.posicoes.length / 3, 0);
         const terreno = c.partes.filter((p) => p.id === 'terreno' || p.id.startsWith('faixa-')).length;
-        const camadas = c.partes.filter((p) => ['predios', 'ruas', 'agua'].includes(p.id));
+        const camadas = c.partes.filter((p) => p.id !== 'base' && p.id !== 'terreno' && !p.id.startsWith('faixa-'));
         const stlPecas = c.partes.reduce((s, p) => s + 84 + 50 * (p.indices.length / 3), 0);
         // 3MF: XML com vértices e triângulos, compactado em zip (~30%)
         const tmf = (verts * 60 + tri * 55) * 0.3;

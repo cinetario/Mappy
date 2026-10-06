@@ -2,6 +2,7 @@
 // e organização em prédios, vias e água.
 import type { LonLat } from './geo.ts';
 import { classificarVia, type TipoVia } from './vias.ts';
+import { classificarCobertura, type TipoCobertura } from './categorias-osm.ts';
 
 type Ponto = { lat: number; lon: number } | null;
 
@@ -219,6 +220,45 @@ export function extrairAgua(elementos: ElementoOSM[]): DadosAgua {
   return { poligonos, rios, costa: juntarCadeias(costa) };
 }
 
+// ---------- cobertura do solo ----------
+export interface AreaCobertura extends PoligonoOSM {
+  tipo: TipoCobertura;
+}
+
+export function extrairCobertura(elementos: ElementoOSM[]): AreaCobertura[] {
+  const r: AreaCobertura[] = [];
+  for (const e of elementos) {
+    const tipo = classificarCobertura(e.tags ?? {});
+    if (!tipo) continue;
+    const pol = poligonoDe(e);
+    if (pol) r.push({ ...pol, tipo });
+  }
+  return r;
+}
+
+// ---------- árvores ----------
+export interface DadosArvores {
+  /** árvores mapeadas uma a uma (natural=tree) */
+  pontos: { id: string; pos: LonLat }[];
+  /** fileiras de árvores (natural=tree_row) */
+  fileiras: LinhaOSM[];
+}
+
+export function extrairArvores(elementos: ElementoOSM[]): DadosArvores {
+  const pontos: DadosArvores['pontos'] = [];
+  const fileiras: LinhaOSM[] = [];
+  for (const e of elementos) {
+    const t = e.tags ?? {};
+    if (e.type === 'node' && t.natural === 'tree' && e.lat !== undefined && e.lon !== undefined) {
+      pontos.push({ id: `n${e.id}`, pos: [e.lon, e.lat] });
+    } else if (e.type === 'way' && t.natural === 'tree_row') {
+      const p = paraLonLat(e.geometry);
+      if (p.length >= 2) fileiras.push({ id: `w${e.id}`, tags: t, pontos: p });
+    }
+  }
+  return { pontos, fileiras };
+}
+
 // ---------- utilidades ----------
 export function centroide(anel: LonLat[]): LonLat {
   let x = 0;
@@ -254,6 +294,9 @@ export function dentro([x, y]: LonLat, aneis: LonLat[][]): boolean {
 /** Mantém só os elementos cuja caixa toca a área (os blocos baixados são maiores que ela). */
 export function filtrarPorArea(elementos: ElementoOSM[], area: { oeste: number; sul: number; leste: number; norte: number }): ElementoOSM[] {
   return elementos.filter((e) => {
+    if (e.type === 'node') {
+      return e.lon !== undefined && e.lat !== undefined && e.lon >= area.oeste && e.lon <= area.leste && e.lat >= area.sul && e.lat <= area.norte;
+    }
     const pontos = e.geometry ?? e.members?.flatMap((m) => m.geometry ?? []) ?? [];
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const p of pontos) {

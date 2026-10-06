@@ -21,11 +21,12 @@ import { criarPrevia } from './navegador/previa.ts';
 import { area as fmtArea, decimal, distancia, inteiro, medidaModelo, type Sistema } from './navegador/unidades.ts';
 import type { Contagem, ResultadoGeracao } from './trabalhador/protocolo.ts';
 import { TIPOS_SO_PRINCIPAIS, escreverTiposDesligados } from './core/vias.ts';
+import { lerCobertura } from './core/cobertura.ts';
 
 const MESA_IMPRESSORA_MM = 270; // volume útil da Snapmaker U1
 const FILAMENTOS = 4; // Snapmaker U1
 /** parâmetros que só mudam a exibição (não precisam gerar de novo) */
-const SO_EXIBICAO = new Set<NomeParametro>(['unidades', 'aguaOpacidade', 'prediosArestas']);
+const SO_EXIBICAO = new Set<NomeParametro>(['unidades', 'aguaOpacidade', 'prediosArestas', 'coberturaOpacidade']);
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const botao = (id: string) => $<HTMLButtonElement>(id);
@@ -285,12 +286,17 @@ function coresPrevistas(p: Parametros): string[] {
     camadaUrbanaAtiva(p.predios, km2) ? p.prediosCor : null,
     camadaUrbanaAtiva(p.ruas, km2) ? p.ruasCor : null,
     p.agua ? p.aguaCor : null,
+    ...(p.cobertura ? Object.values(lerCobertura(p.coberturaCategorias) ?? {}).filter((c) => c.ligada).map((c) => c.cor) : []),
+    p.arvores ? p.arvoresCor : null,
+    p.curvas && p.curvasImprimir ? p.curvasCor : null,
   ].filter((c): c is string => !!c);
   return [...new Set([p.corLaterais, ...terreno, ...camadas])];
 }
 
 function atualizarCores() {
-  const cores = coresPrevistas(estado.params);
+  // depois de gerar, conta as cores das peças que saíram de verdade
+  // (categorias ligadas sem nenhuma área no lugar não gastam filamento)
+  const cores = resultado ? [...new Set(resultado.partes.map((p) => p.cor))] : coresPrevistas(estado.params);
   const amostras = cores.map((c) => `<span class="amostra" style="background:${c}"></span>`).join('');
   const excesso = cores.length > FILAMENTOS;
   $('cores').innerHTML = `Cores: <strong class="${excesso ? 'erro' : ''}">${cores.length}/${FILAMENTOS}</strong> ${amostras}`
@@ -401,9 +407,9 @@ function mostrarPrevia(enquadrar: boolean) {
     id: x.id,
     malha: x,
     cor: x.cor,
-    opacidade: x.id === 'agua' ? p.aguaOpacidade : 1,
+    opacidade: x.id === 'agua' ? p.aguaOpacidade : x.id.startsWith('cobertura-') ? p.coberturaOpacidade : 1,
     arestas: x.id === 'predios' && p.prediosArestas,
-  })), enquadrar);
+  })), enquadrar, { id: 'curvas', pontos: resultado.linhasPrevia, cor: p.curvasCor });
 }
 
 /** Área com muitos elementos: mostra a contagem e deixa escolher. */

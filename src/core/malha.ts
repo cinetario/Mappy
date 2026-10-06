@@ -63,7 +63,10 @@ export function separarVerticesCoincidentes(m: Malha, distancia: number): number
   for (const v of alvo) {
     const s = soma.get(v);
     if (!s) continue;
-    const dir = [0, 1, 2].map((e) => s[e] / s[3] - p[v * 3 + e]);
+    let dir = [0, 1, 2].map((e) => s[e] / s[3] - p[v * 3 + e]);
+    // triângulos minúsculos (os 3 vértices no mesmo ponto) não têm "para dentro":
+    // usa uma direção fixa diferente para cada vértice
+    if (Math.hypot(dir[0], dir[1], dir[2]) < distancia * 1e-3) dir = [Math.cos(v * 2.399), Math.sin(v * 2.399), 0.35];
     const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
     let fator = 1;
     // aumenta o passo até a nova posição ser única em float32

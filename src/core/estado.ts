@@ -3,6 +3,7 @@
 // O painel, a URL, os presets e o "Redefinir" partem desta definição.
 import type { Forma, LonLat } from './geo.ts';
 import { TIPOS_DESLIGADOS_PADRAO, escreverTiposDesligados, lerTiposDesligados } from './vias.ts';
+import { coberturaPadrao, escreverCobertura, validarCoberturaTexto } from './cobertura.ts';
 
 interface DefNumero {
   tipo: 'numero';
@@ -102,6 +103,35 @@ export const PARAMETROS = {
   aguaOcultarPequenos: { tipo: 'booleano', url: 'wq', padrao: true },
   aguaLarguraMinMm: { tipo: 'numero', url: 'wl', padrao: 0.5, min: 0, max: 5 },
   aguaAreaMinMm2: { tipo: 'numero', url: 'wa', padrao: 2, min: 0, max: 500 },
+  // ----- Cobertura do solo -----
+  cobertura: { tipo: 'booleano', url: 'c', padrao: false },
+  coberturaModo: opcao('cm', ['superficie', 'extrudada'] as const, 'superficie'),
+  coberturaDeslocamentoMm: { tipo: 'numero', url: 'co', padrao: 0, min: -5, max: 5 },
+  coberturaOpacidade: { tipo: 'numero', url: 'cq', padrao: 1, min: 0.1, max: 1 },
+  /** por categoria: ligada, cor, altura, integração (ver core/cobertura.ts) */
+  coberturaCategorias: { tipo: 'texto', url: 'cc', padrao: escreverCobertura(coberturaPadrao()), validar: validarCoberturaTexto },
+  coberturaAreaMinMm2: { tipo: 'numero', url: 'ca', padrao: 4, min: 0, max: 500 },
+  // ----- Árvores -----
+  arvores: { tipo: 'booleano', url: 'av', padrao: false },
+  arvoresOsm: { tipo: 'booleano', url: 'ao', padrao: true },
+  arvoresFlorestas: { tipo: 'booleano', url: 'af', padrao: true },
+  arvoresEstilo: opcao('ae', ['classica', 'classicaLowpoly', 'copa', 'copaLowpoly'] as const, 'copa'),
+  /** árvores por cm² do modelo nas florestas */
+  arvoresDensidade: { tipo: 'numero', url: 'ad', padrao: 1.5, min: 0.1, max: 10 },
+  /** altura impressa da árvore, em mm */
+  arvoresAlturaMm: { tipo: 'numero', url: 'ah', padrao: 2.4, min: 0.8, max: 20 },
+  arvoresDistanciaMm: { tipo: 'numero', url: 'ar', padrao: 0.4, min: 0, max: 5 },
+  arvoresCor: { ...cor('#2e5a27'), url: 'ac' },
+  arvoresMaximo: { tipo: 'numero', url: 'am', padrao: 4000, min: 100, max: 20000, inteiro: true },
+  // ----- Curvas de nível -----
+  curvas: { tipo: 'booleano', url: 'k', padrao: false },
+  /** intervalo em metros; 0 = automático */
+  curvasIntervaloM: { tipo: 'numero', url: 'ki', padrao: 0, min: 0, max: 1000 },
+  curvasCor: { ...cor('#6b4f33'), url: 'kc' },
+  /** gerar como linhas em relevo na peça (senão só aparecem na visualização) */
+  curvasImprimir: { tipo: 'booleano', url: 'kp', padrao: true },
+  curvasAlturaMm: { tipo: 'numero', url: 'kh', padrao: 0.2, min: 0.04, max: 3 },
+  curvasLarguraMm: { tipo: 'numero', url: 'kw', padrao: 0.8, min: 0.2, max: 5 },
 } as const satisfies Record<string, Def>;
 
 export type NomeParametro = keyof typeof PARAMETROS;
@@ -156,12 +186,12 @@ export const PRESETS: Record<NomePreset, { rotulo: string; dica: string; params:
   soTerreno: {
     rotulo: 'Só terreno',
     dica: 'Relevo em uma cor, exagero leve, sem camadas do mapa',
-    params: { estilo: 'solido', exagero: 1.5, travarAltura: false, predios: 'nao', ruas: 'nao', agua: false },
+    params: { estilo: 'solido', exagero: 1.5, travarAltura: false, predios: 'nao', ruas: 'nao', agua: false, cobertura: false, arvores: false, curvas: false },
   },
   topografico: {
     rotulo: 'Topográfico',
-    dica: 'Faixas de cor por altitude, relevo mais marcado, água e vias',
-    params: { estilo: 'faixas', exagero: 2, travarAltura: false, predios: 'nao', ruas: 'auto', agua: true },
+    dica: 'Faixas de cor por altitude, relevo mais marcado, curvas de nível, água e vias',
+    params: { estilo: 'faixas', exagero: 2, travarAltura: false, predios: 'nao', ruas: 'auto', agua: true, curvas: true },
   },
   impressao3d: {
     rotulo: 'Impressão 3D',

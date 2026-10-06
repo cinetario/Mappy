@@ -7,7 +7,7 @@ import { areaM2, type Forma } from '../core/geo.ts';
 import { LIMITE_CONFIRMACAO, camadaUrbanaAtiva } from '../core/limites.ts';
 import { carregarManifold } from '../core/manifold.ts';
 import { gerarModelo, planejarAmostragem } from '../core/modelo.ts';
-import { extrairAgua, extrairPredios, extrairVias, filtrarPorArea, type GrupoOSM } from '../core/osm.ts';
+import { extrairAgua, extrairArvores, extrairCobertura, extrairPredios, extrairVias, filtrarPorArea, type GrupoOSM } from '../core/osm.ts';
 import type { Malha } from '../core/malha.ts';
 import { escreverStl, lerStl } from '../core/stl.ts';
 import { verificarMalha } from '../core/verificacao.ts';
@@ -50,7 +50,10 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
     if (camadaUrbanaAtiva(params.predios, km2)) grupos.push('predios');
     if (camadaUrbanaAtiva(params.ruas, km2)) grupos.push('vias');
     if (params.agua) grupos.push('agua');
-    const dados: DadosCamadas = { predios: null, vias: null, agua: null };
+    // cobertura: para a camada e também para encher florestas de árvores
+    if (params.cobertura || (params.arvores && params.arvoresFlorestas)) grupos.push('cobertura');
+    if (params.arvores && params.arvoresOsm) grupos.push('arvores');
+    const dados: DadosCamadas = { predios: null, vias: null, agua: null, cobertura: null, arvores: null };
     const faltando: BlocosFaltando[] = [];
 
     // fonte dos dados: arquivo local quando escolhido e quando ele cobre a área
@@ -82,12 +85,15 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
       if (grupo === 'predios') dados.predios = extrairPredios(elementos, params.prediosDetalhados, params.prediosAlturaPadraoM);
       if (grupo === 'vias') dados.vias = extrairVias(elementos);
       if (grupo === 'agua') dados.agua = extrairAgua(elementos);
+      if (grupo === 'cobertura') dados.cobertura = extrairCobertura(elementos);
+      if (grupo === 'arvores') dados.arvores = extrairArvores(elementos);
     }
     const contagem: Contagem = {
       predios: dados.predios?.length ?? null,
       vias: dados.vias?.length ?? null,
       agua: dados.agua ? dados.agua.poligonos.length + dados.agua.rios.length : null,
-      cobertura: null,
+      cobertura: params.cobertura ? (dados.cobertura?.length ?? 0) : null,
+      arvores: dados.arvores ? dados.arvores.pontos.length + dados.arvores.fileiras.length : null,
     };
     const demais = (contagem.predios ?? 0) > LIMITE_CONFIRMACAO.predios
       || (contagem.vias ?? 0) > LIMITE_CONFIRMACAO.vias
@@ -136,9 +142,12 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
         avisosCamadas: [...avisosFonte, ...faltando.map(textoFaltando), ...(r.camadas?.avisos ?? [])],
         fonteOsm,
         faltando,
+        curvas: r.curvas,
       },
+      linhasPrevia: r.camadas?.linhasPrevia ?? [],
     };
     transferir.push(r.malhaUnica.posicoes.buffer, r.malhaUnica.indices.buffer);
+    for (const l of resultado.linhasPrevia) transferir.push(l.buffer);
     enviar({ tipo: 'pronto', id, resultado }, transferir);
   } catch (erro) {
     const cancelado = erro instanceof Cancelado || sinal.aborted;

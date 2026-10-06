@@ -10,6 +10,8 @@ import { caixaLimite, separarVerticesCoincidentes, type Malha } from './malha.ts
 import { solidoParaMalha, malhaParaSolido, type Solido, type Wasm } from './manifold.ts';
 import { alturasDaGrade, gerarBlocoTerreno, menorAltitude } from './terreno.ts';
 import { lerTiposDesligados } from './vias.ts';
+import { coberturaPadrao, lerCobertura, type ConfigCobertura } from './cobertura.ts';
+import { intervaloAutomatico, niveis, tracarCurvas } from './curvas.ts';
 
 export interface PlanoAmostragem {
   /** caixa do contorno escolhido */
@@ -64,7 +66,8 @@ export interface ResultadoModelo {
   partes: Parte[];
   /** todas as peças fundidas (para o STL único) */
   malhaUnica: Malha;
-  camadas: { avisos: string[]; estatisticas: EstatisticasCamadas } | null;
+  camadas: { avisos: string[]; estatisticas: EstatisticasCamadas; linhasPrevia: Float32Array[] } | null;
+  curvas: InfoCurvas | null;
   unidade: 'mm' | 'm';
   largura: number;
   profundidade: number;
@@ -120,7 +123,57 @@ function opcoesCamadas(p: Parametros, mm: (v: number) => number, real: boolean, 
       larguraMin: mm(p.aguaLarguraMinMm),
       areaMin: mm(1) ** 2 * p.aguaAreaMinMm2,
     },
+    cobertura: {
+      ligada: p.cobertura,
+      modo: p.coberturaModo,
+      deslocamento: mm(p.coberturaDeslocamentoMm),
+      categorias: Object.fromEntries(Object.entries(lerCobertura(p.coberturaCategorias) ?? coberturaPadrao())
+        .map(([t, c]) => [t, { ...c, alturaMm: mm(c.alturaMm) }])) as ConfigCobertura,
+      areaMin: mm(1) ** 2 * p.coberturaAreaMinMm2,
+    },
+    arvores: {
+      ligada: p.arvores,
+      estilo: p.arvoresEstilo,
+      usarMapeadas: p.arvoresOsm,
+      encherFlorestas: p.arvoresFlorestas,
+      // árvores por cm² do modelo impresso → por unidade² do modelo
+      densidade: p.arvoresDensidade / mm(10) ** 2,
+      altura: mm(p.arvoresAlturaMm),
+      distancia: mm(p.arvoresDistanciaMm),
+      cor: p.arvoresCor,
+      maximo: p.arvoresMaximo,
+    },
+    curvas: {
+      imprimir: p.curvasImprimir,
+      altura: mm(p.curvasAlturaMm),
+      largura: mm(p.curvasLarguraMm),
+      cor: p.curvasCor,
+    },
   };
+}
+
+export interface InfoCurvas {
+  intervaloM: number;
+  niveis: number;
+  minM: number;
+  maxM: number;
+}
+
+/** Curvas de nível da grade, em coordenadas do modelo. */
+function calcularCurvas(grade: GradeElevacao, p: Parametros, porMetro: number, minM: number, maxM: number): { linhas: [number, number][][]; info: InfoCurvas } {
+  const intervalo = p.curvasIntervaloM > 0 ? p.curvasIntervaloM : intervaloAutomatico(minM, maxM);
+  const lista = niveis(minM, maxM, intervalo);
+  const valores = p.achatarMar ? grade.elev.map((e) => Math.max(0, e)) : grade.elev;
+  const W = grade.larguraM * porMetro;
+  const H = grade.alturaM * porMetro;
+  const linhas: [number, number][][] = [];
+  // proteção: no máximo 80 níveis (intervalo pequeno demais numa área montanhosa)
+  for (const nivel of lista.slice(0, 80)) {
+    for (const l of tracarCurvas(valores, grade.nx, grade.ny, nivel)) {
+      linhas.push(l.map(([i, j]) => [(i / (grade.nx - 1) - 0.5) * W, (j / (grade.ny - 1) - 0.5) * H]));
+    }
+  }
+  return { linhas, info: { intervaloM: intervalo, niveis: Math.min(lista.length, 80), minM, maxM } };
 }
 
 function bilinear(v: Float32Array, nx: number, ny: number, fx: number, fy: number): number {
@@ -196,9 +249,17 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
     const { min, max } = caixaLimite(solidoParaMalha(recortado));
     const zTopoTerreno = max[2];
 
-    // ---- camadas do mapa (prédios, ruas, água) ----
+    // ---- curvas de nível (da própria grade de elevação) ----
+    let infoCurvas: InfoCurvas | null = null;
+    if (p.curvas) {
+      const c = calcularCurvas(grade, p, porMetro, altitudeMin, altitudeMax);
+      infoCurvas = c.info;
+      dados = { predios: null, vias: null, agua: null, ...dados, curvas: c.linhas };
+    }
+
+    // ---- camadas do mapa (prédios, ruas, água, árvores, curvas, cobertura) ----
     let camadasGeradas: ResultadoCamadas | null = null;
-    if (dados && (dados.predios || dados.vias || dados.agua)) {
+    if (dados && (dados.predios || dados.vias || dados.agua || dados.cobertura || dados.arvores || dados.curvas)) {
       const proj = criarProjecao(caixa);
       const alturas = alturasDaGrade(grade, { porMetroVertical: porMetro * exagero, zBase, altitudeMinima, achatarMar: p.achatarMar });
       const W = grade.larguraM * porMetro;
@@ -275,7 +336,7 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
     // (fundida pela união) ou uma folga ínfima (sem vértices em comum).
     const d = tolerancia;
     const paraUniao = solidosPartes.map((s, i) =>
-      (['predios', 'ruas', 'agua'].includes(partes[i].id) ? guardar(s.translate(0.37 * d, 0.61 * d, -d)) : s));
+      (!ehTerreno(partes[i].id) ? guardar(s.translate(0.37 * d, 0.61 * d, -d)) : s));
     const unico = paraUniao.length === 1 ? paraUniao[0] : guardar(wasm.Manifold.union(paraUniao));
     const malhaUnica = limpa(unico);
     const caixaFinal = caixaLimite(malhaUnica);
@@ -283,7 +344,8 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
     return {
       partes,
       malhaUnica,
-      camadas: camadasGeradas ? { avisos: camadasGeradas.avisos, estatisticas: camadasGeradas.estatisticas } : null,
+      camadas: camadasGeradas ? { avisos: camadasGeradas.avisos, estatisticas: camadasGeradas.estatisticas, linhasPrevia: camadasGeradas.linhasPrevia } : null,
+      curvas: infoCurvas,
       unidade: real ? 'm' : 'mm',
       largura: max[0] - min[0],
       profundidade: max[1] - min[1],
@@ -302,6 +364,8 @@ export function gerarModelo(wasm: Wasm, grade: GradeElevacao, forma: Forma, p: P
     for (const o of objetos) o.delete();
   }
 }
+
+const ehTerreno = (id: string) => id === 'base' || id === 'terreno' || id.startsWith('faixa-');
 
 /** Menor e maior altitude dos pontos da grade que caem dentro do contorno. */
 function altitudesDentro(grade: GradeElevacao, contorno: [number, number][], porMetro: number, achatarMar: boolean) {
