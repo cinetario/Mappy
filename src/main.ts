@@ -21,6 +21,7 @@ import { obterInfoIndiceLocal, type InfoIndiceLocal } from './navegador/osm-clie
 import { criarMapa, enquadrar, mostrarFaltando } from './navegador/mapa.ts';
 import type { Contexto } from './navegador/painel.ts';
 import { preencherIcones } from './navegador/icones.ts';
+import { lembrarEstado, lembrarMapa, lerUltimaSessao } from './navegador/memoria.ts';
 import { criarPrevia } from './navegador/previa.ts';
 import { area as fmtArea, decimal, distancia, inteiro, medidaModelo, type Sistema } from './navegador/unidades.ts';
 import type { Contagem, ParteGerada, ResultadoGeracao } from './trabalhador/protocolo.ts';
@@ -36,7 +37,10 @@ const SO_EXIBICAO = new Set<NomeParametro>(['unidades', 'aguaOpacidade', 'predio
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const botao = (id: string) => $<HTMLButtonElement>(id);
 
-// ---------- estado (vem da URL) ----------
+// ---------- estado (vem da URL; sem link, da última sessão neste navegador) ----------
+const ultimaSessao = lerUltimaSessao();
+const abriuComLink = location.hash.replace(/^#/, '') !== '';
+if (!abriuComLink && ultimaSessao?.hash) history.replaceState(null, '', `#${ultimaSessao.hash}`);
 const estado: Estado = urlParaEstado(location.hash);
 let resultado: ResultadoGeracao | null = null;
 let modeloDesatualizado = false;
@@ -81,10 +85,14 @@ const desenho = criarDesenho(mapa, {
   aoMudarFerramenta: mostrarFerramenta,
 });
 
-if (estado.forma) {
-  desenho.definirForma(estado.forma);
-  enquadrar(mapa, caixaDaForma(estado.forma), false);
-}
+if (estado.forma) desenho.definirForma(estado.forma);
+// link aberto: mostra a área do link; senão, o mapa volta para onde estava
+if (!abriuComLink && ultimaSessao?.mapa) mapa.jumpTo({ center: ultimaSessao.mapa.centro, zoom: ultimaSessao.mapa.zoom });
+else if (estado.forma) enquadrar(mapa, caixaDaForma(estado.forma), false);
+mapa.on('moveend', () => {
+  const c = mapa.getCenter();
+  lembrarMapa([c.lng, c.lat], mapa.getZoom());
+});
 
 // ---------- painel ----------
 const abaModelo = montarAbaModelo($('aba-modelo'), mudarParametro);
@@ -137,7 +145,34 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('#abas [data-aba]')
 for (const b of document.querySelectorAll<HTMLButtonElement>('[data-preset]')) {
   b.addEventListener('click', () => trocarParametros(aplicarPreset(estado.params, b.dataset.preset as NomePreset)));
 }
-botao('btn-redefinir').addEventListener('click', () => trocarParametros(parametrosPadrao()));
+// Redefinir: volta as configurações ao padrão (a área fica). Por alguns
+// segundos o botão vira "Desfazer", caso tenha sido sem querer.
+{
+  const b = botao('btn-redefinir');
+  const rotulo = b.innerHTML;
+  let anteriores: Parametros | null = null;
+  let relogio: number | undefined;
+  const voltarRotulo = () => {
+    anteriores = null;
+    b.innerHTML = rotulo;
+    b.classList.remove('desfazer');
+    preencherIcones(b.parentElement!); // o ícone volta junto com o texto
+  };
+  b.addEventListener('click', () => {
+    clearTimeout(relogio);
+    if (anteriores) {
+      trocarParametros(anteriores);
+      voltarRotulo();
+      return;
+    }
+    const antes = { ...estado.params };
+    trocarParametros(parametrosPadrao());
+    anteriores = antes;
+    b.textContent = 'Desfazer (voltar às configurações anteriores)';
+    b.classList.add('desfazer');
+    relogio = window.setTimeout(voltarRotulo, 10_000);
+  });
+}
 
 function trocarParametros(novos: Parametros) {
   const mudaram = (Object.keys(novos) as NomeParametro[]).filter((k) => novos[k] !== estado.params[k]);
@@ -149,6 +184,7 @@ function trocarParametros(novos: Parametros) {
 function salvarNaUrl() {
   const hash = estadoParaUrl(estado);
   if (hash !== location.hash.replace(/^#/, '')) history.replaceState(null, '', hash ? `#${hash}` : location.pathname);
+  lembrarEstado(hash);
 }
 window.addEventListener('hashchange', () => {
   // o usuário colou outro link na mesma aba

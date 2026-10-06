@@ -141,7 +141,15 @@ A tela tem três partes:
   no navegador.
 - **Meio**: o mapa (para escolher a área) e/ou a visualização 3D.
 - **Painel da direita**: pontos de partida, abas *Modelo* e *Camadas* e, no
-  rodapé, cores, botão de gerar, status e downloads.
+  rodapé, cores, **Redefinir configurações**, botão de gerar, status e downloads.
+
+**O app lembra onde você parou:** ao abrir sem link, ele volta com a última
+área, todas as configurações e a mesma posição do mapa (fica guardado neste
+navegador). Abrir um link compartilhado mostra o modelo do link.
+
+**Redefinir configurações** (no rodapé do painel, acima de *Gerar modelo 3D*)
+volta todas as opções ao padrão; a área desenhada continua. Por 10 segundos o
+botão vira **Desfazer**, para voltar às configurações anteriores.
 
 1. **Local**: digite um endereço, cidade ou montanha na busca da barra de cima
    e aperte Enter. Clique num resultado para o mapa ir até lá.
@@ -166,7 +174,6 @@ A tela tem três partes:
    - **Só terreno**: uma cor, exagero 1,5x.
    - **Topográfico**: faixas de cor por altitude, exagero 2x.
    - **Impressão 3D**: 220 mm, altura travada em 17 mm, base de 2 mm, camadas de 0,2 mm.
-   - **Redefinir**: volta tudo ao padrão (a área continua).
 4. **Aba Modelo**: seções que abrem uma de cada vez.
    - **Dimensões e coordenadas**
      - *Impressão 3D* (em mm) ou *Escala 1:1* (em metros reais, para Blender/GIS).
@@ -495,6 +502,7 @@ mapas3d/
       aba-camadas.ts    aba Camadas
       osm-cliente.ts    baixa os blocos do OSM pelo servidor local
       unidades.ts       exibição em métrico ou imperial
+      memoria.ts        lembra a última sessão (área, configurações, posição do mapa)
       gerador.ts        conversa com o Web Worker
       previa.ts         pré-visualização 3D (Three.js)
       tiles.ts          baixa tiles pelo servidor local

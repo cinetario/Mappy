@@ -333,3 +333,9 @@ footer a { color: inherit; }
   #painel { border-left: 0; }
   #acoes { max-height: none; }
 }
+
+/* botão Redefinir (rodapé do painel) */
+#btn-redefinir { padding: 7px 12px; font-weight: 600; color: var(--suave); }
+#btn-redefinir svg { width: 16px; height: 16px; }
+#btn-redefinir:hover:not(:disabled) { color: var(--texto); background: var(--painel-2); }
+#btn-redefinir.desfazer { color: var(--aviso); border-color: var(--aviso); background: var(--aviso-fundo); }
