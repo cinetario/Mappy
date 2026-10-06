@@ -74,6 +74,36 @@ outro estado), o app usa o Overpass automaticamente e avisa.
 
 A pasta `dados-osm\` não vai para o Git.
 
+### 1.4 Prédios de outras fontes (opcional)
+
+Ficam no mesmo índice local (`dados-osm\indice-osm.sqlite`) e continuam lá quando
+você roda `npm run importar-osm` de novo.
+
+**Overture Maps** (mais prédios no Brasil, de Google, Microsoft e Esri, além do OSM):
+```powershell
+npm run importar-overture -- df
+```
+Baixa só os pedaços dos arquivos do Overture que tocam a região (o DF dá ~210 MB
+de download). Outras regiões: passe a caixa em graus, `oeste,sul,leste,norte`,
+ex.: `npm run importar-overture -- -43.8,-23.1,-43.1,-22.7`. Rodar de novo
+troca os dados daquela região pela versão mais nova do Overture.
+
+**Arquivo da prefeitura** (GeoJSON, shapefile em `.zip` ou `.shp` com `.dbf` e `.prj`):
+```powershell
+npm run importar-predios -- "C:\caminho\edificacoes.zip"
+```
+Sem mais opções, o comando lista os campos do arquivo e sugere qual parece ser
+a altura. Depois importe dizendo o campo e o texto de atribuição exigido pela
+licença do arquivo:
+```powershell
+npm run importar-predios -- "C:\caminho\edificacoes.zip" --altura ALTURA --atribuicao "Prefeitura de X (licença Y)"
+```
+- `--andares CAMPO` usa o número de andares (3 m cada) no lugar da altura.
+- As coordenadas são convertidas pelo `.prj` (ou pelo `crs` do GeoJSON). Se o
+  arquivo não disser o sistema, use `--epsg`: SIRGAS 2000 / UTM 23S (DF, MG, RJ,
+  SP leste) é `--epsg 31983`; 22S é `31982`; 24S é `31984`.
+- `--nome` dá um nome curto ao conjunto (reimportar com o mesmo nome substitui).
+
 ---
 
 ## 2. Rodando o app
@@ -191,9 +221,27 @@ Cada camada tem um **interruptor** (liga/desliga no arquivo), a **quantidade** d
 elementos e um **olho** (esconde só na pré-visualização; continua no arquivo).
 Clique no nome para abrir as opções.
 
-- **Prédios**: altura vinda de `height` / `building:levels` do OSM (3 m por
+- **Prédios**: altura vinda de `height` / `building:levels` (3 m por
   andar), com altura padrão para os que não têm essa informação.
-  - *Prédios detalhados* usa `building:part` quando existir.
+  - *Fonte dos prédios* (veja a seção 1.4 para importar):
+    - **OpenStreetMap**: o padrão.
+    - **Overture Maps**: junta OSM, Google Open Buildings, Microsoft e Esri;
+      cobre muito mais prédios no Brasil, alguns com altura.
+    - **Automático**: OSM onde houver; o Overture completa a altura dos prédios
+      do OSM sem altura e acrescenta os que faltam, sem duplicar (se um prédio
+      do Overture cobre 30% ou mais de um do OSM, ou o contrário, é o mesmo).
+    - **Arquivo da prefeitura**: GeoJSON ou shapefile que você importar.
+  - O painel mostra quantos prédios vieram de cada fonte (e, no Overture, de
+    cada base original), quantos estão sem altura (usam o padrão) e, no
+    Automático, quantos ganharam altura do Overture.
+  - *Prédios detalhados* usa `building:part` quando existir. Partes que começam
+    no alto (`min_height`, como passarelas): *Preencher embaixo* (padrão, imprime
+    sem suporte) ou *Deixar o vão* (precisa de suporte).
+  - *Telhados*: desenha `roof:shape` do OSM (duas águas, quatro águas,
+    piramidal, cúpula; plano é o normal), com a altura de `roof:height` ou
+    `roof:levels` (sem isso: inclinação de 30°). O telhado é feito sobre o
+    retângulo que envolve o prédio e cortado no contorno dele. Em escala de
+    cidade um telhado de 3 m vira décimos de mm; aparece bem em bairros.
   - Exagero de altura e aleatoriedade (sempre igual para o mesmo prédio).
   - Mostra o prédio mais baixo e o mais alto, em mm e em metros reais.
   - *Elevado* (sobre o terreno) ou *Rebaixado* (encaixado num sulco).
@@ -301,6 +349,8 @@ Outros comandos:
 | `npm run typecheck` | Confere os tipos do TypeScript |
 | `npm run importar-osm` | Importa os `.osm.pbf` de `dados-osm\` para o índice local |
 | `npm run pre-carregar -- df` | Guarda no cache a elevação (Mapterhorn) e o mapa de fundo do Distrito Federal. Aceita também uma caixa `oeste,sul,leste,norte` em graus, ex.: `npm run pre-carregar -- -43.8,-23.1,-43.1,-22.7` |
+| `npm run importar-overture -- df` | Importa os prédios do Overture Maps de uma região para o índice local (seção 1.4) |
+| `npm run importar-predios -- arquivo` | Importa prédios de um arquivo da prefeitura (seção 1.4) |
 
 ## 6. Dados, cache e limites
 
@@ -311,9 +361,13 @@ Outros comandos:
 | Elevação | [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Terrarium) | ~30–90 m | Aberta, com atribuição |
 | Mapa de fundo | [OpenFreeMap](https://openfreemap.org) | — | Grátis, sem chave |
 | Busca de endereços | [Nominatim](https://nominatim.org) / OpenStreetMap | — | ODbL |
+| Prédios (opcional) | [Overture Maps](https://docs.overturemaps.org/attribution/), tema buildings | — | ODbL 1.0. Bases: OpenStreetMap (ODbL), Google Open Buildings (CC BY 4.0 / ODbL), Microsoft ML Buildings (ODbL), Esri Community Maps (CC BY 4.0) |
+| Prédios (opcional) | Arquivo da prefeitura | — | A licença do arquivo (você informa o texto de atribuição na importação) |
 
 - **Atribuição obrigatória:** o rodapé do app mostra "© OpenStreetMap contributors"
-  e o crédito da fonte de elevação escolhida. Se vender ou divulgar as impressões,
+  e o crédito da fonte de elevação escolhida. Quando o modelo usa prédios do
+  Overture ou da prefeitura, o rodapé acrescenta "© Overture Maps Foundation" e
+  só as bases que de fato entraram no modelo (ou o texto da prefeitura). Se vender ou divulgar as impressões,
   inclua esses créditos (por exemplo, numa etiqueta).
   - Créditos do Terrain Tiles:
     [github.com/tilezen/joerd](https://github.com/tilezen/joerd/blob/master/docs/attribution.md).
@@ -399,6 +453,9 @@ mapas3d/
       verificacao.ts    verificação de malha manifold
       manifold.ts       ponte com a biblioteca manifold-3d (booleanas e validação)
       stl.ts            leitura e escrita de STL binário
+      predios-fontes.ts junta OSM e Overture sem duplicar (modo Automático)
+      telhados.ts       telhados (roof:shape)
+      atribuicoes.ts    atribuição das fontes de prédios
       tmf.ts            3MF multicolor e distribuição das cores nos 4 filamentos
       moldura.ts        moldura e plaquinha de texto
       texto.ts          texto → contornos (fontes TrueType)
@@ -424,6 +481,9 @@ mapas3d/
     importador.ts       .osm.pbf → índice SQLite (npm run importar-osm)
     indice-osm.ts       consultas ao índice local e cobertura da área
     mapa-fundo.ts       cache do mapa de fundo (OpenFreeMap)
+    extras.ts           prédios de outras fontes no índice local
+    overture.ts         leitura dos GeoParquet do Overture (só os pedaços da região)
+    prefeitura.ts       leitura de GeoJSON/shapefile e conversão de coordenadas
   scripts/              comandos verificar, exemplo e importar-osm
   dados-osm/            seus .osm.pbf e o índice gerado (fora do Git)
   tests/                testes automáticos (Vitest)

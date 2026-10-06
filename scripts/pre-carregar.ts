@@ -4,21 +4,15 @@
 //      npm run pre-carregar -- -48.3,-16.1,-47.3,-15.5      (oeste,sul,leste,norte)
 import { obterTile } from '../server/fontes.ts';
 import { obterRecursoMapa } from '../server/mapa-fundo.ts';
+import { lerRegiao } from './regioes.ts';
 
-/** Regiões prontas (caixa com uma pequena folga). */
-const REGIOES: Record<string, { nome: string; caixa: [number, number, number, number] }> = {
-  df: { nome: 'Distrito Federal', caixa: [-48.30, -16.07, -47.29, -15.48] },
-};
 const ZOOM_ELEVACAO = [6, 14] as const;
 const ZOOM_MAPA_MAX = 14;
 const SIMULTANEOS = 6;
 const ESTILO = 'https://tiles.openfreemap.org/styles/liberty';
 
-const arg = process.argv[2]?.toLowerCase();
-const regiao = arg && REGIOES[arg] ? REGIOES[arg] : arg?.split(',').length === 4
-  ? { nome: arg, caixa: arg.split(',').map(Number) as [number, number, number, number] }
-  : null;
-if (!regiao || regiao.caixa.some((v) => !Number.isFinite(v))) {
+const regiao = lerRegiao(process.argv[2]);
+if (!regiao) {
   console.log('Uso: npm run pre-carregar -- df');
   console.log('     npm run pre-carregar -- oeste,sul,leste,norte   (graus, ex.: -48.3,-16.1,-47.3,-15.5)');
   process.exit(1);

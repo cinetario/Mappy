@@ -10,7 +10,8 @@ import { montarTerra, type Caixa2D, type P } from './costa.ts';
 import type { LonLat } from './geo.ts';
 import type { Malha } from './malha.ts';
 import { malhaParaSolido, type Solido, type Wasm } from './manifold.ts';
-import { larguraRioM, type AreaCobertura, type DadosAgua, type DadosArvores, type LinhaOSM, type Predio, type Via } from './osm.ts';
+import { larguraRioM, type AreaCobertura, type DadosAgua, type DadosArvores, type FontePredio, type FormaTelhado, type LinhaOSM, type Predio, type Via } from './osm.ts';
+import { alturaPadraoTelhado, menorRetangulo, solidoTelhado } from './telhados.ts';
 import { TIPOS_VIA, type TipoVia } from './vias.ts';
 import { LISTA_COBERTURA, TIPOS_COBERTURA, type TipoCobertura } from './categorias-osm.ts';
 import type { ConfigCobertura } from './cobertura.ts';
@@ -40,6 +41,10 @@ export interface OpcoesCamadas {
   predios: {
     exagero: number; aleatorio: number; integracao: 'elevado' | 'rebaixado';
     profundidade: number; deslocamento: number; cor: string;
+    /** desenhar telhados (roof:shape) */
+    telhados?: boolean;
+    /** partes que começam acima do chão (min_height): preencher embaixo ou deixar o vão */
+    partesAcima?: 'preencher' | 'vao';
   };
   ruas: {
     modo: 'superficie' | 'extrudada'; altura: number; integracao: 'elevada' | 'rebaixada';
@@ -90,7 +95,17 @@ export interface PecaCamada {
 }
 
 export interface EstatisticasCamadas {
-  predios?: { quantidade: number; menorMm: number; maiorMm: number; menorM: number; maiorM: number; semAltura: number };
+  predios?: {
+    quantidade: number; menorMm: number; maiorMm: number; menorM: number; maiorM: number; semAltura: number;
+    porFonte: Partial<Record<FontePredio, number>>;
+    /** bases originais (Overture: OpenStreetMap, Google…; prefeitura: atribuição) dos prédios usados */
+    origens: Record<string, number>;
+    /** prédios cuja altura veio de outra fonte */
+    alturaDeOutraFonte: number;
+    telhados: number;
+    /** partes com vão embaixo (min_height) */
+    comVao: number;
+  };
   ruas?: { quantidade: number; porTipo: Partial<Record<TipoVia, number>> };
   agua?: { poligonos: number; rios: number; temMar: boolean; removidosPequenos: number; planos: number };
   cobertura?: { areas: number; porTipo: Partial<Record<TipoCobertura, number>>; removidasPequenas: number };
@@ -175,9 +190,16 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
     if (dados.predios?.length) {
       const p = op.predios;
       /** por altura de telhado: anéis simples (juntados por NonZero) e prédios com pátio (par-ímpar) */
-      const grupos = new Map<number, { simples: P[][]; comFuros: P[][][] }>();
+      // chave: "topo|base" (base = margem, salvo partes com vão embaixo)
+      const grupos = new Map<string, { topo: number; base: number; simples: P[][]; comFuros: P[][][] }>();
+      const telhadosPendentes: { aneis: P[][]; forma: FormaTelhado; z0: number; h: number; ret: ReturnType<typeof menorRetangulo> }[] = [];
       const caixaC = caixaDe(ctx.contorno);
       let menor = Infinity, maior = -Infinity, menorM = Infinity, maiorM = -Infinity, semAltura = 0, n = 0;
+      let alturaDeOutraFonte = 0, comVao = 0;
+      const porFonte: Partial<Record<FontePredio, number>> = {};
+      const origens: Record<string, number> = {};
+      const alinhar = (z: number) => (op.real ? z : alinharZ(z, op.camadas));
+      const passoMin = op.real ? op.mm(0.2) : op.camadas.h;
       for (const pr of dados.predios) {
         const aneis = pr.aneis.map((a) => a.map(ctx.projetar));
         const cx = caixaDe(aneis[0]);
@@ -194,19 +216,46 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
         const alturaM = pr.alturaM * p.exagero * variacao;
         let telhado = chao + alturaM * ctx.porMetro + p.deslocamento;
         telhado = Math.max(telhado, zMax + (op.real ? op.mm(0.2) : op.camadas.h));
-        if (!op.real) telhado = alinharZ(telhado, op.camadas);
-        const grupo = grupos.get(telhado) ?? { simples: [], comFuros: [] };
+        telhado = alinhar(telhado);
+        // telhado inclinado: o corpo vai até a base do telhado e o telhado sobe até o topo
+        let topoCorpo = telhado;
+        if (p.telhados && pr.telhado && pr.telhado.forma !== 'plano') {
+          const ret = menorRetangulo(aneis[0]);
+          const hDesejado = pr.telhado.alturaM != null
+            ? pr.telhado.alturaM * p.exagero * variacao * ctx.porMetro
+            : alturaPadraoTelhado(pr.telhado.forma, ret);
+          const hMax = (telhado - zMax) * 0.7; // o corpo do prédio continua visível
+          const base = alinhar(telhado - Math.min(hDesejado, hMax));
+          if (telhado - base >= passoMin && base > zMax) {
+            topoCorpo = base;
+            telhadosPendentes.push({ aneis, forma: pr.telhado.forma, z0: base, h: telhado - base, ret });
+          }
+        }
+        // parte que começa no alto (min_height): vão embaixo, se pedido
+        let baseCorpo = margem;
+        if (pr.minAlturaM > 0 && p.partesAcima === 'vao') {
+          const b = alinhar(chao + pr.minAlturaM * p.exagero * variacao * ctx.porMetro);
+          if (b > zMax + passoMin && b < topoCorpo - passoMin) {
+            baseCorpo = b;
+            comVao++;
+          }
+        }
+        const chave = `${topoCorpo}|${baseCorpo}`;
+        const grupo = grupos.get(chave) ?? { topo: topoCorpo, base: baseCorpo, simples: [], comFuros: [] };
         if (aneis.length === 1) grupo.simples.push(orientarAntiHorario(aneis[0]));
         else grupo.comFuros.push(aneis);
-        grupos.set(telhado, grupo);
+        grupos.set(chave, grupo);
         n++;
         if (!pr.alturaInformada) semAltura++;
+        if (pr.alturaDe && pr.alturaDe !== pr.fonte) alturaDeOutraFonte++;
+        porFonte[pr.fonte] = (porFonte[pr.fonte] ?? 0) + 1;
+        if (pr.origem) origens[pr.origem] = (origens[pr.origem] ?? 0) + 1;
         const alturaFinal = telhado - chao;
         menor = Math.min(menor, alturaFinal); maior = Math.max(maior, alturaFinal);
         menorM = Math.min(menorM, alturaM); maiorM = Math.max(maiorM, alturaM);
       }
       const prismas: Solido[] = [];
-      for (const [telhado, grupo] of grupos) {
+      for (const grupo of grupos.values()) {
         const secoes: Secao[] = [];
         if (grupo.simples.length) secoes.push(g(new wasm.CrossSection(grupo.simples, 'NonZero')));
         for (const aneis of grupo.comFuros) secoes.push(g(new wasm.CrossSection(aneis, 'EvenOdd')));
@@ -214,7 +263,16 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
         const cs = abrir(recortar(uniao2d), op.larguraMinima);
         if (cs.isEmpty()) continue;
         obstaculos2D.push(cs);
-        prismas.push(prisma(cs, margem, telhado));
+        prismas.push(prisma(cs, grupo.base, grupo.topo));
+      }
+      let nTelhados = 0;
+      for (const t of telhadosPendentes) {
+        const pegada = abrir(recortar(g(new wasm.CrossSection(t.aneis, 'EvenOdd'))), op.larguraMinima);
+        if (pegada.isEmpty()) continue;
+        const sol = solidoTelhado(wasm, pegada, t.ret, t.forma, t.z0, t.h);
+        if (!sol) continue;
+        prismas.push(g(sol));
+        nTelhados++;
       }
       if (prismas.length) {
         const uniao = g(wasm.Manifold.union(prismas));
@@ -224,7 +282,10 @@ export function gerarCamadas(ctx: ContextoTerreno, dados: DadosCamadas, op: Opco
           pecas.push({ id: 'predios', nome: 'Prédios', cor: p.cor, solido: solidoPredios });
           if (fundo < 0) cortes.push(solidoPredios);
         }
-        estatisticas.predios = { quantidade: n, menorMm: menor, maiorMm: maior, menorM, maiorM, semAltura };
+        estatisticas.predios = {
+          quantidade: n, menorMm: menor, maiorMm: maior, menorM, maiorM, semAltura,
+          porFonte, origens, alturaDeOutraFonte, telhados: nTelhados, comVao,
+        };
       }
     }
 

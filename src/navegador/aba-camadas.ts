@@ -18,6 +18,29 @@ export interface AcoesCamadas {
   aoOcultar: (id: string, oculta: boolean) => void;
 }
 
+/** O que está importado para cada fonte de prédios, e como importar. */
+function dicaFontePredios(c: Contexto): string {
+  const conj = c.osmLocal?.conjuntos ?? [];
+  const lista = (fonte: 'overture' | 'prefeitura') => conj.filter((x) => x.fonte === fonte)
+    .map((x) => `${x.nome} (${inteiro(x.quantidade)})`).join(', ');
+  switch (c.params.prediosFonte) {
+    case 'overture':
+    case 'automatico': {
+      const l = lista('overture');
+      const base = c.params.prediosFonte === 'automatico'
+        ? 'OSM onde houver; o Overture completa alturas e prédios que faltam, sem duplicar. '
+        : 'Inclui prédios do OSM, Google Open Buildings, Microsoft e Esri. ';
+      return base + (l ? `Importado: ${l}.` : '<span class="aviso-leve">Nada importado ainda: rode <code>npm run importar-overture -- df</code> (ou uma caixa oeste,sul,leste,norte).</span>');
+    }
+    case 'prefeitura': {
+      const l = lista('prefeitura');
+      return l ? `Importado: ${l}.` : '<span class="aviso-leve">Nenhum arquivo importado: rode <code>npm run importar-predios -- arquivo.zip</code> (veja o README).</span>';
+    }
+    default:
+      return '';
+  }
+}
+
 /** mm impressos → metros reais (com a escala prevista). */
 const emMetros = (c: Contexto, mm: number) => (c.mmPorMetro ? mm / c.mmPorMetro : null);
 
@@ -58,15 +81,40 @@ export function montarAbaCamadas(container: HTMLElement, a: AcoesCamadas) {
   }, [
     informacao(avisoGrande('predios'), { visivel: (c) => !!avisoGrande('predios')(c) }),
     voltarAuto('predios'),
+    opcoes('prediosFonte', 'Fonte dos prédios', [
+      ['osm', 'OpenStreetMap'],
+      ['overture', 'Overture Maps'],
+      ['automatico', 'Automático (OSM + Overture)'],
+      ['prefeitura', 'Arquivo da prefeitura'],
+    ], aoMudar, { lista: true, dica: dicaFontePredios }),
     informacao((c) => {
       const s = c.info?.estatisticasCamadas?.predios;
-      if (!s) return 'Altura vinda das tags <strong>height</strong> e <strong>building:levels</strong> do OpenStreetMap (3 m por andar).';
+      if (!s) return 'Altura vinda de <strong>height</strong> e <strong>building:levels</strong> (3 m por andar).';
       const u = sis(c);
-      return `<strong>${inteiro(s.quantidade)}</strong> prédios${s.semAltura ? ` (${inteiro(s.semAltura)} sem altura no OSM: usam a altura padrão)` : ''}<br>
+      const nomes: Record<string, string> = { osm: 'OpenStreetMap', overture: 'Overture', prefeitura: 'prefeitura' };
+      const porFonte = Object.entries(s.porFonte).map(([f, q]) => `${nomes[f] ?? f}: <strong>${inteiro(q ?? 0)}</strong>`).join(' · ');
+      const origensOverture = s.porFonte.overture
+        ? `<br><span class="dica">Overture por base: ${Object.entries(s.origens).filter(([o]) => o !== 'OpenStreetMap' || !s.porFonte.osm)
+          .sort((x, y) => y[1] - x[1]).map(([o, q]) => `${o} ${inteiro(q)}`).join(' · ')}</span>`
+        : '';
+      const p = c.info?.predios;
+      const auto = p?.fonte === 'automatico'
+        ? `<br>Automático: ${inteiro(p.alturasCompletadas)} do OSM ganharam altura do Overture; ${inteiro(p.descartados)} do Overture eram o mesmo prédio do OSM (descartados).`
+        : '';
+      return `<strong>${inteiro(s.quantidade)}</strong> prédios · ${porFonte}${origensOverture}<br>
+        Sem altura (usam o padrão de ${inteiro(c.params.prediosAlturaPadraoM)} m): <strong>${inteiro(s.semAltura)}</strong>${s.alturaDeOutraFonte ? ` · altura vinda de outra fonte: ${inteiro(s.alturaDeOutraFonte)}` : ''}${auto}<br>
+        ${s.telhados ? `Telhados desenhados: ${inteiro(s.telhados)}<br>` : ''}${s.comVao ? `Partes com vão embaixo: ${inteiro(s.comVao)}<br>` : ''}
         Mais baixo: <strong>${medidaModelo(s.menorMm, u, 1)}</strong> (${distancia(s.menorM, u)} reais)<br>
         Mais alto: <strong>${medidaModelo(s.maiorMm, u, 1)}</strong> (${distancia(s.maiorM, u)} reais)`;
     }),
     booleano('prediosDetalhados', 'Prédios detalhados (usa building:part quando existir)', aoMudar),
+    opcoes('prediosPartesAcima', 'Partes que começam no alto (min_height)', [['preencher', 'Preencher embaixo'], ['vao', 'Deixar o vão']], aoMudar, {
+      visivel: (c) => c.params.prediosDetalhados,
+      dica: (c) => (c.params.prediosPartesAcima === 'vao' ? '<span class="aviso-leve">O vão fica no ar: a impressão precisa de suporte.</span>' : 'Passarelas e marquises viram blocos cheios: imprime sem suporte.'),
+    }),
+    booleano('prediosTelhados', 'Telhados (roof:shape do OSM)', aoMudar, {
+      dica: 'Duas águas, quatro águas, piramidal e cúpula, onde o OSM informa o formato. Em escala de cidade ficam com décimos de mm; aparecem bem em bairros.',
+    }),
     numero('prediosAlturaPadraoM', 'Altura padrão sem informação', aoMudar, { unidade: 'm', passo: 1 }),
     numero('prediosExagero', 'Exagero de altura', aoMudar, { deslizante: true, passo: 0.05, exibir: (c) => `${decimal(c.params.prediosExagero, 2)}x` }),
     numero('prediosAleatorio', 'Aleatoriedade de altura', aoMudar, {

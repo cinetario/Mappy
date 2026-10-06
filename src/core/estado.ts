@@ -70,6 +70,12 @@ export const PARAMETROS = {
   /** auto = ligado até 100 km², desligado acima */
   predios: opcao('p', ['auto', 'sim', 'nao'] as const, 'auto'),
   prediosDetalhados: { tipo: 'booleano', url: 'pd', padrao: false },
+  /** de onde vêm os prédios: OSM, Overture, OSM + Overture sem duplicar, ou arquivo da prefeitura */
+  prediosFonte: opcao('pf', ['osm', 'overture', 'automatico', 'prefeitura'] as const, 'osm'),
+  /** telhados de roof:shape (duas águas, quatro águas, piramidal, cúpula) */
+  prediosTelhados: { tipo: 'booleano', url: 'pt', padrao: true },
+  /** partes que começam no alto (min_height): preencher embaixo (imprime sem suporte) ou deixar o vão */
+  prediosPartesAcima: opcao('pv', ['preencher', 'vao'] as const, 'preencher'),
   prediosAlturaPadraoM: { tipo: 'numero', url: 'pa', padrao: 10, min: 2, max: 100 },
   prediosExagero: { tipo: 'numero', url: 'pe', padrao: 1, min: 0.25, max: 5 },
   prediosAleatorio: { tipo: 'numero', url: 'pr', padrao: 0, min: 0, max: 50, inteiro: true },

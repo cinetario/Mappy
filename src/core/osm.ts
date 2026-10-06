@@ -29,10 +29,24 @@ export interface LinhaOSM {
   pontos: LonLat[];
 }
 
+export type FontePredio = 'osm' | 'overture' | 'prefeitura';
+export type FormaTelhado = 'plano' | 'duas-aguas' | 'quatro-aguas' | 'piramidal' | 'cupula';
+
 export interface Predio extends PoligonoOSM {
+  /** altura total (do chão ao topo do telhado) */
   alturaM: number;
   /** a altura veio de height/levels (e não do padrão) */
   alturaInformada: boolean;
+  /** de onde veio o prédio */
+  fonte: FontePredio;
+  /** base original (Overture: OpenStreetMap, Google Open Buildings…; prefeitura: atribuição) */
+  origem?: string;
+  /** de onde veio a altura, quando não é da própria fonte (ex.: OSM sem altura completado pelo Overture) */
+  alturaDe?: FontePredio;
+  /** parte que começa acima do chão (building:part com min_height) */
+  minAlturaM: number;
+  /** telhado (forma e altura; altura null = calculada pela largura) */
+  telhado: { forma: FormaTelhado; alturaM: number | null } | null;
 }
 
 export interface Via extends LinhaOSM {
@@ -140,6 +154,33 @@ export function alturaPredio(tags: Record<string, string>, padraoM: number): { a
   return { alturaM: padraoM, informada: false };
 }
 
+/** roof:shape do OSM (e roof_shape do Overture) → formas que o app desenha */
+const FORMAS_TELHADO: Record<string, FormaTelhado> = {
+  flat: 'plano',
+  gabled: 'duas-aguas', gambrel: 'duas-aguas', saltbox: 'duas-aguas', skillion: 'duas-aguas',
+  hipped: 'quatro-aguas', 'half-hipped': 'quatro-aguas', mansard: 'quatro-aguas', side_hipped: 'quatro-aguas',
+  pyramidal: 'piramidal', cone: 'piramidal',
+  dome: 'cupula', onion: 'cupula', round: 'cupula',
+};
+
+/** Telhado pelas tags roof:shape / roof:height / roof:levels (null = sem roof:shape). */
+export function telhadoPredio(tags: Record<string, string>): Predio['telhado'] {
+  const forma = FORMAS_TELHADO[(tags['roof:shape'] ?? '').trim().toLowerCase()];
+  if (!forma) return null;
+  if (forma === 'plano') return { forma, alturaM: 0 };
+  const h = lerMedidaM(tags['roof:height']);
+  const niveis = Number(tags['roof:levels']);
+  return { forma, alturaM: h ?? (Number.isFinite(niveis) && niveis > 0 ? niveis * METROS_POR_ANDAR : null) };
+}
+
+/** Altura onde a parte começa (min_height, ou building:min_level × 3 m). */
+export function minAlturaPredio(tags: Record<string, string>): number {
+  const h = lerMedidaM(tags.min_height);
+  if (h) return Math.min(h, 1000);
+  const nivel = Number(tags['building:min_level']);
+  return Number.isFinite(nivel) && nivel > 0 ? nivel * METROS_POR_ANDAR : 0;
+}
+
 const NAO_PREDIO = new Set(['no', 'roof', 'construction', 'ruins', 'collapsed', 'demolished']);
 
 export function extrairPredios(elementos: ElementoOSM[], detalhados: boolean, alturaPadraoM: number): Predio[] {
@@ -153,7 +194,16 @@ export function extrairPredios(elementos: ElementoOSM[], detalhados: boolean, al
     const pol = poligonoDe(e);
     if (!pol) continue;
     const { alturaM, informada } = alturaPredio(tags, alturaPadraoM);
-    const p: Predio = { ...pol, alturaM, alturaInformada: informada };
+    const fonte: FontePredio = tags['relevo3d:fonte'] === 'overture' || tags['relevo3d:fonte'] === 'prefeitura' ? tags['relevo3d:fonte'] : 'osm';
+    const telhado = telhadoPredio(tags);
+    let total = alturaM;
+    // com andares (sem height), o telhado de roof:height fica em cima dos andares
+    if (!lerMedidaM(tags.height) && !lerMedidaM(tags['building:height']) && telhado?.alturaM && !tags['roof:levels'] && informada) total += telhado.alturaM;
+    const minAlturaM = Math.min(minAlturaPredio(tags), total * 0.95);
+    const p: Predio = {
+      ...pol, alturaM: total, alturaInformada: informada, fonte, minAlturaM, telhado,
+      ...(tags['relevo3d:origem'] ? { origem: tags['relevo3d:origem'] } : fonte === 'osm' ? { origem: 'OpenStreetMap' } : {}),
+    };
     if (ehParte && !ehPredio) partes.push(p);
     else contornos.push(p);
   }

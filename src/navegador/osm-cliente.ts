@@ -17,6 +17,8 @@ export interface InfoIndiceLocal {
   contagens: Partial<Record<GrupoOSM, number>>;
   pasta: string;
   desatualizado?: boolean;
+  /** prédios de outras fontes já importados (Overture, prefeitura) */
+  conjuntos?: ConjuntoPredios[];
 }
 
 export async function obterInfoIndiceLocal(): Promise<InfoIndiceLocal | null> {
@@ -125,4 +127,35 @@ export async function baixarOSM(
     sinal,
   });
   return { elementos: semDuplicatas(r.dados), faltando: r.faltando };
+}
+
+/** Um conjunto de prédios de outra fonte importado no índice local (ver server/extras.ts). */
+export interface ConjuntoPredios {
+  id: string;
+  fonte: 'overture' | 'prefeitura';
+  nome: string;
+  caixa: [number, number, number, number];
+  versao: string;
+  importadoEm: string;
+  quantidade: number;
+  origens: Record<string, number>;
+  atribuicao: string;
+  licenca: string;
+}
+
+/**
+ * Prédios do Overture ou da prefeitura já importados, na área.
+ * `conjuntos`: os que cobrem a área inteira (vazio = a área não foi importada por completo).
+ */
+export async function baixarPrediosExtras(fonte: 'overture' | 'prefeitura', area: Retangulo, sinal: AbortSignal): Promise<{ elementos: ElementoOSM[]; conjuntos: ConjuntoPredios[] }> {
+  const q = new URLSearchParams({ fonte, oeste: String(area.oeste), sul: String(area.sul), leste: String(area.leste), norte: String(area.norte) });
+  try {
+    const resp = await fetch(`/api/predios-extra?${q}`, { signal: sinal });
+    if (!resp.ok) throw new Error(`Prédios (${fonte}): ${await resp.text()}`);
+    const json = (await resp.json()) as { elements: ElementoOSM[]; conjuntos: ConjuntoPredios[] };
+    return { elementos: json.elements, conjuntos: json.conjuntos };
+  } catch (erro) {
+    if (sinal.aborted) throw new Cancelado();
+    throw erro;
+  }
 }

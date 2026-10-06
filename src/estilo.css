@@ -213,7 +213,9 @@ details.subsecao .conteudo { padding: 4px 0 10px; display: flex; flex-direction:
 .campo .rotulo strong { color: var(--destaque); font-weight: 700; }
 .campo input[type='range'] { display: block; width: 100%; }
 .campo select, .campo input[type='number'], .campo input[type='text'] { width: 100%; }
-.campo.interruptor, .campo.cor { display: flex; gap: 10px; align-items: center; cursor: pointer; }
+.campo.interruptor, .campo.cor { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; cursor: pointer; }
+.campo.interruptor > span { flex: 1; min-width: 0; }
+.campo.interruptor .dica, .campo.cor .dica { flex-basis: 100%; margin-top: 0; padding-left: 44px; }
 .campo .dica { margin-top: 5px; }
 .com-unidade { display: flex; align-items: center; gap: 6px; }
 .com-unidade input { flex: 1; }

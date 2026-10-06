@@ -26,6 +26,7 @@ import { area as fmtArea, decimal, distancia, inteiro, medidaModelo, type Sistem
 import type { Contagem, ParteGerada, ResultadoGeracao } from './trabalhador/protocolo.ts';
 import { TIPOS_SO_PRINCIPAIS, escreverTiposDesligados } from './core/vias.ts';
 import { lerCobertura } from './core/cobertura.ts';
+import { ATRIBUICAO_OVERTURE, atribuicaoBaseOverture, type Atribuicao } from './core/atribuicoes.ts';
 
 const MESA_IMPRESSORA_MM = 270; // volume útil da Snapmaker U1
 const FILAMENTOS = 4; // Snapmaker U1
@@ -314,10 +315,24 @@ function atualizarCores() {
 
 function atualizarCreditos() {
   const f = FONTES[estado.params.fonte];
-  $('creditos').innerHTML = `Dados: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>
+  const link = (a: Atribuicao) => (a.link ? `<a href="${a.link}" target="_blank" rel="noopener">${esc(a.texto)}</a>` : esc(a.texto));
+  // prédios de outras fontes: só as que entraram no modelo
+  const predios: string[] = [];
+  const s = resultado?.info.estatisticasCamadas?.predios;
+  if (s?.porFonte.overture) {
+    const bases = Object.keys(s.origens).filter((o) => o !== 'OpenStreetMap' && !resultado!.info.predios?.conjuntos.some((c) => c.fonte === 'prefeitura' && c.atribuicao === o));
+    predios.push([ATRIBUICAO_OVERTURE, ...bases.map((b) => atribuicaoBaseOverture(b))].map((a) => `${link(a)} (${a.licenca})`).join(', '));
+  }
+  if (s?.porFonte.prefeitura) {
+    for (const c of resultado!.info.predios?.conjuntos ?? []) if (c.fonte === 'prefeitura') predios.push(esc(c.atribuicao));
+  }
+  $('creditos').innerHTML = `Dados: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL)
     · Mapa: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>
-    · Elevação: <a href="${f.link}" target="_blank" rel="noopener">${f.atribuicao}</a>`;
+    · Elevação: <a href="${f.link}" target="_blank" rel="noopener">${f.atribuicao}</a>
+    ${predios.length ? `· Prédios: ${predios.join(' · ')}` : ''}`;
 }
+
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 // ---------- geração ----------
 // gerar pelo botão: se só o mapa está à vista, mostra o 3D também

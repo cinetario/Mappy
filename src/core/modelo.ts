@@ -117,6 +117,8 @@ function opcoesCamadas(p: Parametros, mm: (v: number) => number, real: boolean, 
       profundidade: mm(p.prediosProfundidadeMm),
       deslocamento: mm(p.prediosDeslocamentoMm),
       cor: p.prediosCor,
+      telhados: p.prediosTelhados,
+      partesAcima: p.prediosPartesAcima,
     },
     ruas: {
       modo: p.ruasModo,

@@ -12,6 +12,7 @@ import { closeSync, openSync, renameSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { CHAVES_RELEVANTES, GRUPOS_OSM, grupoDoElemento, grupoDoNo, type GrupoOSM } from '../src/core/categorias-osm.ts';
+import { copiarExtras } from './extras.ts';
 import { VERSAO_INDICE, abrirCelula, chaveCelula, criarTabelas, montarCelula } from './indice-osm.ts';
 import {
   etiquetas, lerBlob, lerBloco, lerCabecalho, lerCaminhos, lerDensos, lerNos, lerRelacoes, listarBlobs, tiposDoBloco,
@@ -391,6 +392,9 @@ export function importarArquivos(arquivos: string[], arquivoIndice: string, sile
   ins.run('dataImportacao', new Date().toISOString());
   ins.run('contagens', JSON.stringify(saida.contagens));
   ins.run('celulas', JSON.stringify(dilatarCelulas(saida.celulas, 2)));
+  // prédios do Overture e da prefeitura já importados continuam no índice novo
+  const extras = copiarExtras(saida.db, arquivoIndice);
+  if (extras) rel.log(`  ${extras.toLocaleString('pt-BR')} prédios de outras fontes (Overture, prefeitura) mantidos`);
   saida.db.exec('ANALYZE');
   saida.db.close();
 

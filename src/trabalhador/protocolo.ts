@@ -4,6 +4,7 @@ import type { GrupoOSM } from '../core/categorias-osm.ts';
 import type { InfoCurvas } from '../core/modelo.ts';
 import type { Parametros } from '../core/estado.ts';
 import type { Forma } from '../core/geo.ts';
+import type { ConjuntoPredios } from '../navegador/osm-cliente.ts';
 import type { ResultadoVerificacao } from '../core/verificacao.ts';
 
 export interface PedidoGeracao {
@@ -44,6 +45,19 @@ export interface ParteGerada {
   verificacao: ResultadoVerificacao;
 }
 
+/** De onde vieram os prédios do modelo. */
+export interface InfoPredios {
+  fonte: 'osm' | 'overture' | 'automatico' | 'prefeitura';
+  /** conjuntos importados usados (Overture: região; prefeitura: arquivo), com a atribuição */
+  conjuntos: ConjuntoPredios[];
+  /** Automático: prédios do OSM sem altura que receberam a do Overture */
+  alturasCompletadas: number;
+  /** Automático: prédios do Overture que coincidiam com um do OSM */
+  descartados: number;
+  /** Automático: prédios do Overture copiados do próprio OSM (ignorados) */
+  copiasDoOsm: number;
+}
+
 export interface InfoModelo {
   unidade: 'mm' | 'm';
   largura: number;
@@ -70,6 +84,8 @@ export interface InfoModelo {
   fonteOsm: 'local' | 'overpass' | null;
   /** curvas de nível: intervalo, quantos níveis e faixa de altitudes */
   curvas: InfoCurvas | null;
+  /** fonte dos prédios (null = camada desligada) */
+  predios: InfoPredios | null;
 }
 
 /** Um bloco do modelo dividido (para imprimir mapas maiores que a mesa). */

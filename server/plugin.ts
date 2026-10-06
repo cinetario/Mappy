@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { Plugin } from 'vite';
 import { obterGradeCopernicus } from './copernicus.ts';
 import { PASTA_CACHE, buscarEndereco, ehFonteTile, obterTile, tipoDoTile } from './fontes.ts';
+import { conjuntosQueCobrem, consultarExtras, listarConjuntos } from './extras.ts';
 import { consultarIndice, indiceCobre, infoIndice } from './indice-osm.ts';
 import { obterRecursoMapa, urlPermitida } from './mapa-fundo.ts';
 import { FalhaOverpass, SERVIDORES, consultarOSM, ehGrupoOSM, type GrupoOSM } from './overpass.ts';
@@ -106,7 +107,22 @@ export function apiLocal(): Plugin {
           }
           if (url.pathname === '/osm/local') {
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            res.end(JSON.stringify(infoIndice()));
+            res.end(JSON.stringify({ ...infoIndice(), conjuntos: listarConjuntos() }));
+            return;
+          }
+          // /api/predios-extra?fonte=overture|prefeitura&oeste=&sul=&leste=&norte=
+          // prédios de outras fontes já importados no índice local (sem internet)
+          if (url.pathname === '/predios-extra') {
+            const fonte = url.searchParams.get('fonte');
+            const [o, s, l, n] = ['oeste', 'sul', 'leste', 'norte'].map((k) => Number(url.searchParams.get(k)));
+            const ok = (fonte === 'overture' || fonte === 'prefeitura') && [o, s, l, n].every(Number.isFinite)
+              && l > o && n > s && l - o <= 2 && n - s <= 2;
+            if (!ok) throw new Error('Pedido inválido para prédios de outras fontes (área máxima de 2° × 2°)');
+            const cobrem = conjuntosQueCobrem(fonte, o, s, l, n);
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            // a resposta tem o mesmo formato do Overpass, mais os conjuntos que cobrem a área
+            const elementos = consultarExtras(fonte, s, o, n, l);
+            res.end(`{"conjuntos":${JSON.stringify(cobrem)},${elementos.slice(1)}`);
             return;
           }
           if (url.pathname === '/osm/servidores') {

@@ -10,15 +10,16 @@ import { areaM2, type Forma } from '../core/geo.ts';
 import { LIMITE_CONFIRMACAO, camadaUrbanaAtiva } from '../core/limites.ts';
 import { carregarManifold } from '../core/manifold.ts';
 import { gerarModelo, planejarAmostragem } from '../core/modelo.ts';
-import { extrairAgua, extrairArvores, extrairCobertura, extrairPredios, extrairVias, filtrarPorArea, type GrupoOSM } from '../core/osm.ts';
+import { extrairAgua, extrairArvores, extrairCobertura, extrairPredios, extrairVias, filtrarPorArea, type ElementoOSM, type GrupoOSM } from '../core/osm.ts';
 import type { Malha } from '../core/malha.ts';
 import { escreverStl, lerStl } from '../core/stl.ts';
 import { carregarFonte, type NomeFonteTexto } from '../core/texto.ts';
 import { verificarMalha } from '../core/verificacao.ts';
-import { baixarOSM, indiceCobre, obterInfoIndiceLocal } from '../navegador/osm-cliente.ts';
+import { baixarOSM, baixarPrediosExtras, indiceCobre, obterInfoIndiceLocal, type ConjuntoPredios } from '../navegador/osm-cliente.ts';
+import { combinarPredios } from '../core/predios-fontes.ts';
 import { FONTES_TILES, gradeCopernicus } from '../navegador/tiles.ts';
 import { Cancelado } from '../core/blocos.ts';
-import type { BlocoGerado, BlocosFaltando, Contagem, MensagemDoWorker, MensagemParaWorker, ParteGerada, ResultadoGeracao } from './protocolo.ts';
+import type { BlocoGerado, BlocosFaltando, Contagem, InfoPredios, MensagemDoWorker, MensagemParaWorker, ParteGerada, ResultadoGeracao } from './protocolo.ts';
 
 /** Verifica a malha como ela fica no arquivo (STL não guarda topologia: vértices são soldados pela posição). */
 const verificarComoStl = (m: Malha) => verificarMalha(lerStl(escreverStl(m)));
@@ -62,7 +63,30 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
     // ---- camadas do OpenStreetMap ----
     const km2 = areaM2(forma) / 1e6;
     const grupos: GrupoOSM[] = [];
-    if (camadaUrbanaAtiva(params.predios, km2)) grupos.push('predios');
+    const avisosFonte: string[] = [];
+
+    // ---- prédios de outras fontes (Overture, prefeitura), já importados no índice local ----
+    const prediosLigados = camadaUrbanaAtiva(params.predios, km2);
+    let fontePredios = params.prediosFonte;
+    let extras: { elementos: ElementoOSM[]; conjuntos: ConjuntoPredios[] } | null = null;
+    if (prediosLigados && fontePredios !== 'osm') {
+      const fonteExtra = fontePredios === 'prefeitura' ? 'prefeitura' : 'overture';
+      progresso(`Lendo prédios (${fonteExtra === 'overture' ? 'Overture' : 'prefeitura'}) do índice local`, 0.35);
+      extras = await baixarPrediosExtras(fonteExtra, plano.caixaGrade, sinal);
+      if (fonteExtra === 'overture' && !extras.conjuntos.length) {
+        avisosFonte.push('Os prédios do Overture desta área ainda não foram importados: usando só o OSM. '
+          + 'Para importar, rode "npm run importar-overture -- oeste,sul,leste,norte" (veja o README).');
+        fontePredios = 'osm';
+        extras = null;
+      } else if (fonteExtra === 'prefeitura' && !extras.elementos.length) {
+        avisosFonte.push('Nenhum prédio do arquivo da prefeitura nesta área: usando o OSM. Importe com "npm run importar-predios".');
+        fontePredios = 'osm';
+        extras = null;
+      } else if (fonteExtra === 'prefeitura' && !extras.conjuntos.length) {
+        avisosFonte.push('O arquivo da prefeitura não cobre a área inteira: fora dele não há prédios.');
+      }
+    }
+    if (prediosLigados && (fontePredios === 'osm' || fontePredios === 'automatico')) grupos.push('predios');
     if (camadaUrbanaAtiva(params.ruas, km2)) grupos.push('vias');
     if (params.agua) grupos.push('agua');
     // cobertura: para a camada e também para encher florestas de árvores
@@ -73,7 +97,6 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
 
     // fonte dos dados: arquivo local quando escolhido e quando ele cobre a área
     let fonteOsm: 'local' | 'overpass' | null = null;
-    const avisosFonte: string[] = [];
     if (grupos.length) {
       fonteOsm = 'overpass';
       if (params.fonteOsm === 'local') {
@@ -102,6 +125,21 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
       if (grupo === 'agua') dados.agua = extrairAgua(elementos);
       if (grupo === 'cobertura') dados.cobertura = extrairCobertura(elementos);
       if (grupo === 'arvores') dados.arvores = extrairArvores(elementos);
+    }
+    // ---- prédios: fonte escolhida ----
+    let infoPredios: InfoPredios | null = null;
+    if (prediosLigados) {
+      const deExtras = extras ? extrairPredios(filtrarPorArea(extras.elementos, plano.caixaGrade), params.prediosDetalhados, params.prediosAlturaPadraoM) : [];
+      if (fontePredios === 'automatico' && extras) {
+        const c = combinarPredios(dados.predios ?? [], deExtras);
+        dados.predios = c.predios;
+        infoPredios = { fonte: 'automatico', conjuntos: extras.conjuntos, alturasCompletadas: c.alturasCompletadas, descartados: c.descartados, copiasDoOsm: c.copiasDoOsm };
+      } else if (fontePredios === 'overture' || fontePredios === 'prefeitura') {
+        dados.predios = deExtras;
+        infoPredios = { fonte: fontePredios, conjuntos: extras?.conjuntos ?? [], alturasCompletadas: 0, descartados: 0, copiasDoOsm: 0 };
+      } else {
+        infoPredios = { fonte: 'osm', conjuntos: [], alturasCompletadas: 0, descartados: 0, copiasDoOsm: 0 };
+      }
     }
     const contagem: Contagem = {
       predios: dados.predios?.length ?? null,
@@ -172,6 +210,7 @@ self.onmessage = async (ev: MessageEvent<MensagemParaWorker>) => {
         fonteOsm,
         faltando,
         curvas: r.curvas,
+        predios: infoPredios,
       },
       linhasPrevia: r.camadas?.linhasPrevia ?? [],
     };
