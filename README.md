@@ -3,16 +3,20 @@
 Aplicativo local (roda no seu PC, pelo navegador) que gera modelos 3D de mapas de
 qualquer lugar do mundo e exporta para impressão 3D.
 
-> **Fase atual: D.** Já funciona:
+Feito para a **Snapmaker U1** (4 filamentos) com o **Snapmaker Orca**, usando só
+dados abertos e gratuitos (sem chaves de API pagas).
+
+> **Fase atual: F.** Já funciona:
 > - seleção em retângulo, círculo, hexágono ou polígono (a base sai no mesmo formato);
-> - aba Modelo com presets, 3 fontes de elevação e malha adaptativa;
+> - aba Modelo com pontos de partida, 3 fontes de elevação e malha adaptativa;
 > - faixas de cor por altitude alinhadas às camadas de impressão;
 > - aba Camadas com **prédios, ruas, água, cobertura do solo, árvores e curvas de nível**;
+> - prédios do **OpenStreetMap, Overture Maps ou arquivo da prefeitura**, com telhados;
 > - dados do OpenStreetMap de um **arquivo local** (ou do Overpass);
-> - exportação STL e estado salvo na URL.
->
-> Próxima fase: E (moldura,
-> texto, blocos, 3MF multicor).
+> - **moldura com texto** e **divisão em blocos** para mapas maiores que a mesa;
+> - exportação **3MF multicolor** (uma peça por camada, com filamento definido),
+>   STL único e STL por peça;
+> - estado salvo na URL (copie o link para guardar ou compartilhar um modelo).
 
 ---
 
@@ -54,19 +58,25 @@ local**, sem depender do Overpass (que vive sobrecarregado).
    https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf (~820 MB).
    Outras regiões: download.geofabrik.de/south-america/brazil.html
    (o **Distrito Federal** está no arquivo do **Centro-Oeste**, ~200 MB).
-2. Salve o arquivo, **sem renomear**, em:
-   `C:\caminho\para\Mappy\dados-osm\sudeste-latest.osm.pbf`
-   (pode colocar mais de um `.osm.pbf` nessa pasta; todos são importados).
+2. Salve o arquivo na pasta `C:\caminho\para\Mappy\dados-osm\`.
+   Pode colocar **um arquivo por região** (ex.: Sudeste e Centro-Oeste juntos);
+   todos são importados. O nome pode ser o `-latest` ou o com data
+   (`sudeste-261005.osm.pbf`).
 3. Rode:
    ```powershell
    npm run importar-osm
    ```
-   Leva ~5 minutos para a Sudeste e gera `dados-osm\indice-osm.sqlite`
-   (alguns GB). Dá para rodar com o app aberto; depois aperte F5.
+   Gera `dados-osm\indice-osm.sqlite`. Com Sudeste + Centro-Oeste leva ~12
+   minutos e o índice fica com ~12 GB. Dá para rodar com o app aberto; depois
+   aperte F5.
 
-**Para atualizar** os dados: baixe o arquivo novo (mesmo nome, por cima do
-antigo) e rode `npm run importar-osm` de novo. A aba **Camadas** mostra a data
-dos dados e quando foram importados.
+**Para atualizar** os dados: baixe o arquivo novo da região e rode
+`npm run importar-osm` de novo. A aba **Camadas** mostra a data dos dados e
+quando foram importados.
+
+> **Atenção:** deixe só **um arquivo de cada região** na pasta. Se o novo tiver
+> outro nome (ex.: `sudeste-261005` ao lado de `sudeste-261004`), apague o
+> antigo antes de importar; senão os dados daquela região entram em dobro.
 
 Na aba Camadas, **Fonte dos dados OSM** escolhe entre *Arquivo local* (padrão)
 e *Overpass (online)*. Se a área desenhada ficar fora do arquivo importado (ex.:
@@ -115,6 +125,13 @@ npm run dev
 
 O navegador abre sozinho em **http://localhost:5173**. Para parar, volte ao
 PowerShell e aperte `Ctrl + C`.
+
+**Depois de atualizar o projeto** (`git pull` ou uma fase nova): pare o app,
+rode `npm install` (pode ter biblioteca nova) e `npm run dev` de novo. No
+navegador, `Ctrl + F5` recarrega sem cache.
+
+> **Cores estranhas, tudo escuro?** Extensões de "modo escuro" do navegador
+> (como a Dark Reader) escurecem o app. Desligue a extensão para `localhost`.
 
 ## 3. Como usar
 
@@ -202,7 +219,7 @@ A tela tem três partes:
    - Depois de gerado, mudar os parâmetros atualiza a prévia na hora.
 6. A linha de status mostra **✓ Malha fechada e válida** quando todas as peças
    passaram na verificação. Escolha o arquivo:
-   - **Baixar 3MF (multicolor)**: cada camada é um objeto separado e com nome
+   - **Baixar 3MF multicolor**: cada camada é um objeto separado e com nome
      (Base, Terreno, Prédios, Ruas, Água, Moldura, Texto…), já com a cor e o
      filamento definidos. Abre como um objeto só, com as peças no lugar certo.
    - **STL único**: todas as peças fundidas num sólido só (uma cor).
@@ -299,8 +316,8 @@ app mostra a contagem antes de montar o modelo e oferece: gerar mesmo assim,
 desligar prédios ou ficar só com as vias principais.
 
 **Sem sobreposição:** prédios têm prioridade sobre ruas, e ruas sobre água (uma
-ponte corta o rio). Cada peça é um sólido fechado separado, pronto para o 3MF
-multicor da Fase E.
+ponte corta o rio). Cada peça é um sólido fechado separado, que vira um objeto
+próprio no 3MF multicolor.
 
 **Contador de cores:** acima dos botões aparece "Cores: N/4". Antes de gerar,
 ele conta as cores das camadas ligadas; depois, só as das peças que saíram de
@@ -326,7 +343,11 @@ para alguém. Ao abrir o link, o modelo é refeito igualzinho. Recarregar a pág
    - Tamanho 100 mm a 150 mm, exagero 1,5x a 2x.
    - Camada de 0,2 mm (ou 0,12 mm para relevo mais suave).
    - Preenchimento de 10 % a 15 %: o modelo é sólido, e preencher tudo gasta muito filamento.
-   - Sem suportes: o relevo não tem partes no ar.
+   - Sem suportes: o relevo não tem partes no ar. A exceção são os prédios com
+     *Deixar o vão* (partes com `min_height`); no padrão eles saem preenchidos.
+4. **Blocos:** cada arquivo de bloco já vem na posição certa em relação aos
+   outros. Imprima um por vez e junte pela ordem do nome (A1 no canto noroeste,
+   B1 à direita dele, A2 abaixo).
 
 ## 5. Verificar se um STL é válido (manifold)
 
@@ -379,6 +400,11 @@ Outros comandos:
   o app baixa só os pedaços necessários de arquivos de ~46 MB.
 - **Cache:** tudo que é baixado fica em `mapas3d\cache\`. Gerar de novo a mesma
   área não acessa a internet. Pode apagar essa pasta a qualquer momento.
+- **Pré-carregar uma região** (`npm run pre-carregar -- df`): guarda de uma vez
+  a elevação do Mapterhorn e o mapa de fundo. No Brasil o Mapterhorn só tem
+  dados até o zoom 12 (~30 m); o comando anota também os zooms sem dados, para
+  o app não perguntar de novo. O Copernicus não entra: ele é guardado por
+  modelo gerado.
 - **Busca:** limitada a 1 pedido por segundo, como pede a política do Nominatim.
   Para incluir seu e-mail de contato no pedido (recomendado pela política), rode
   antes do `npm run dev`:
@@ -484,7 +510,10 @@ mapas3d/
     extras.ts           prédios de outras fontes no índice local
     overture.ts         leitura dos GeoParquet do Overture (só os pedaços da região)
     prefeitura.ts       leitura de GeoJSON/shapefile e conversão de coordenadas
-  scripts/              comandos verificar, exemplo e importar-osm
+  scripts/              comandos npm run verificar, exemplo, importar-osm,
+                        pre-carregar, importar-overture e importar-predios
+    regioes.ts          regiões prontas para os comandos (ex.: df)
   dados-osm/            seus .osm.pbf e o índice gerado (fora do Git)
+  cache/                tudo que foi baixado da internet (fora do Git)
   tests/                testes automáticos (Vitest)
 ```
