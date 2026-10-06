@@ -35,9 +35,14 @@ Feche e abra o PowerShell de novo e confira:
 node --version
 ```
 
-### 1.2 Dependências do projeto
+### 1.2 Baixar o projeto e as dependências
+
+Baixe o código pelo botão **Code → Download ZIP** do GitHub (e descompacte) ou
+com o Git, e entre na pasta dele. Nos exemplos abaixo, a pasta do projeto é
+`C:\caminho\para\Mappy`; troque pelo lugar onde você salvou.
 
 ```powershell
+git clone https://github.com/<usuario>/Mappy.git C:\caminho\para\Mappy
 cd C:\caminho\para\Mappy
 npm install
 ```
@@ -58,7 +63,7 @@ local**, sem depender do Overpass (que vive sobrecarregado).
    https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf (~820 MB).
    Outras regiões: download.geofabrik.de/south-america/brazil.html
    (o **Distrito Federal** está no arquivo do **Centro-Oeste**, ~200 MB).
-2. Salve o arquivo na pasta `C:\caminho\para\Mappy\dados-osm\`.
+2. Salve o arquivo na pasta `dados-osm\`, dentro da pasta do projeto.
    Pode colocar **um arquivo por região** (ex.: Sudeste e Centro-Oeste juntos);
    todos são importados. O nome pode ser o `-latest` ou o com data
    (`sudeste-261005.osm.pbf`).
@@ -405,7 +410,7 @@ Outros comandos:
 - **Copernicus mede a superfície:** inclui prédios e copas de árvores. Em cidades,
   prefira o Mapterhorn. A primeira geração numa região leva alguns segundos, porque
   o app baixa só os pedaços necessários de arquivos de ~46 MB.
-- **Cache:** tudo que é baixado fica em `mapas3d\cache\`. Gerar de novo a mesma
+- **Cache:** tudo que é baixado fica na pasta `cache\` do projeto. Gerar de novo a mesma
   área não acessa a internet. Pode apagar essa pasta a qualquer momento.
 - **Pré-carregar uma região** (`npm run pre-carregar -- df`): guarda de uma vez
   a elevação do Mapterhorn e o mapa de fundo. No Brasil o Mapterhorn só tem
@@ -460,7 +465,7 @@ Outros comandos:
 ## 7. Estrutura do projeto
 
 ```
-mapas3d/
+Mappy/
   index.html            página do app
   src/
     main.ts             liga a interface aos módulos
